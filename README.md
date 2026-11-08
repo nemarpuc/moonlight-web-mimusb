@@ -9,7 +9,7 @@ very PC that runs the server, so a remote session exercises the same path a
 physical keyboard takes.
 
 > Not affiliated with, or endorsed by, the Moonlight-Web author. This repository
-> holds no upstream source: only new files, three small patches and one appended
+> holds no upstream source: only new files, four small patches and one appended
 > CMake line, applied to the official release by the build. See [DESIGN.md](DESIGN.md).
 
 ## What you need
@@ -51,10 +51,20 @@ bash install.sh rollback                                                # either
 A MoonlightWeb it replaces is kept once as `*.official`; `rollback` puts it back.
 
 Upstream's autostart and stream-worker tasks keep working, as they already point
-at the install folder. **Upstream's update button installs the official build
-again — run `install.ps1` again after it.** (Released builds check *this* repository for
-new versions, so you are only told about one that has the add-on; there the notice
-links to the release page.)
+at the install folder.
+
+**Updates.** The built-in update notice reads *this* repository's releases, so you are told about
+a new version only once it exists here, as the add-on build, and never offered the official
+installer. What the notice does depends on the system:
+
+- **Linux (AppImage):** the **Update** button works: it downloads this repository's AppImage and
+  replaces the running file.
+- **Windows and macOS:** the notice says to update the host PC and links the release page
+  ("What's new"); there is no one-click update, because the release holds a zip, not upstream's
+  installer. Download it and run `install.ps1` / `install.sh install` again; your `mimhid.json`
+  stays.
+- If you run upstream's own installer by hand, you have the official build again: run
+  `install.ps1` / `install.sh` again.
 
 The release is built from the official tag with the official frontend, so the
 official entry link (`stream.moonlightweb.top/…`) opens it as before.
@@ -120,7 +130,7 @@ testing; a device you hand to others needs IDs of its own — never copy another
   `port` (`auto` finds the first board) and that the serial port is yours:
   Linux needs the `dialout` (Debian, Ubuntu) or `uucp` (Arch) group, then sign in again.
 - **The first 5 seconds after plugging the board** still use the OS input; this is by design.
-- **After upstream's update button** the official build is back: run the installer again.
+- **After upstream's own installer** the official build is back: run `install.ps1` / `install.sh` again.
 - **The entry page refuses the build.** The build's version must be an official
   release; a build from a branch is never published (see [DESIGN.md](DESIGN.md)).
 

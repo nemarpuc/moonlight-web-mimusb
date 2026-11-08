@@ -72,8 +72,9 @@ Edited by hand; there is no UI.
 
 ## What is patched in upstream
 
-Four existing files, a few lines each. Three are patches (`patches/`); the fourth
-gets one line appended by `tools/prepare.py`, so it has no hunk that can stop applying:
+Five existing files, a few lines each. Four are patches (`patches/`, written with one line of
+context so a neighbouring upstream change does not stop them applying); the fifth gets one line
+appended by `tools/prepare.py`, so it has no hunk that can stop applying:
 
 | File | Change |
 |---|---|
@@ -81,6 +82,7 @@ gets one line appended by `tools/prepare.py`, so it has no hunk that can stop ap
 | `…/platform/windows/WindowsSession.cpp` | wrap the sink: `wrapWithMimHid(...)` |
 | `…/platform/linux/LinuxSession.cpp` | the same |
 | `…/platform/macos/MacSession.mm` | the same |
+| `backend/src/main.cpp` | `/api/update/check`: `self_update.supported` is false when the update checker found no installer for this platform (see below) |
 
 One more line is rewritten by `prepare.py` in CI: the update check's URL in
 `backend/src/network/UpdateChecker.cpp` now names this repository's releases
@@ -167,10 +169,22 @@ When upstream publishes release X:
 3. Until then, a machine **already running an older add-on build keeps working**: its
    own version's list is still there. Nobody is locked out by X existing.
 4. The built-in update notice reads this repository's `releases/latest`, so it says
-   nothing about X until step 2 is done, and then offers the add-on build.
-5. If a user presses upstream's update button, or installs upstream's own package,
-   they get the official build of X: it works with the entry page, but input goes
-   through the OS again until `install.ps1` / `install.sh` is run.
+   nothing about X until step 2 is done, and then offers the add-on build. The notice
+   (`/api/update/check`) picks the release asset by name: Windows `win-x64.exe`, macOS `.pkg`,
+   Linux `.deb` / `.rpm` / `.AppImage` (`UpdateChecker::pickAsset`, upstream `backend/src/network/`).
+   - **Linux AppImage:** this repository's `*-x86_64.AppImage` matches. The Update button
+     downloads it, checks size and SHA-256, and `mv`s it over the running AppImage
+     (`SelfUpdater`, method `appimage`): the version rises to X with the add-on kept.
+   - **Windows and macOS:** nothing matches (the assets are zips). Upstream's banner would still
+     offer an Update button, which fails with "No installer published for this platform",
+     because `self_update.supported` ignores the asset. `patches/0004` makes it false when
+     no asset matched, so the banner reads "update the host PC to install it" with a link to the
+     release page; the user runs `install.ps1` / `install.sh`. The elevated Windows helper
+     (`--update-apply`) would refuse anyway: it demands `<product>-installer-*win-x64.exe` with a
+     SHA-256 (`UpdateApplyRules`).
+5. If a user runs upstream's own installer by hand, they get the official build of X: it works
+   with the entry page, but input goes through the OS again until `install.ps1` /
+   `install.sh` is run.
 6. If a patch no longer applies, nothing is published (the workflow fails and GitHub
    mails the owner). Machines keep running their current build; no new version for
    anyone until the patch is fixed.
@@ -197,7 +211,7 @@ Linux and macOS: `tools/install.sh install <AppImage|zip>` / `rollback`, same
 `*.official` rule. Windows: `tools/install.ps1` replaces the files in `C:\Program Files\MoonlightWeb`
 after keeping the official ones as `*.official`. `tools/rollback.ps1` puts them
 back. Upstream's own tasks (autostart, stream worker) keep working: they
-already point at that folder. Upstream's update button restores the official
+already point at that folder. Upstream's own installer restores the official
 build; run `install.ps1` again after it.
 
 Both Windows scripts run elevated, so they are careful about what they touch:

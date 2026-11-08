@@ -1,0 +1,14 @@
+diff --git a/backend/src/main.cpp b/backend/src/main.cpp
+index 9052c07..eee05ed 100644
+--- a/backend/src/main.cpp
++++ b/backend/src/main.cpp
+@@ -2776,3 +2776,8 @@ int main(int argc, char* argv[])
+         QJsonObject obj = updateChecker.statusJson();
+-        obj["self_update"] = selfUpdater.capabilityJson();
++        QJsonObject selfUpdate = selfUpdater.capabilityJson();
++        // moonlight-web-mimhid: its releases hold no installer in upstream's form on Windows
++        // and macOS (a zip, put in place with install.ps1 / install.sh), so no one-click update
++        // is offered where the checker found no installer for this platform.
++        if (obj.value("asset_name").toString().isEmpty()) selfUpdate["supported"] = false;
++        obj["self_update"] = selfUpdate;
+         return HttpResponse::json(obj);
