@@ -18,53 +18,35 @@ physical keyboard takes.
   and a 3.3 V USB-to-UART bridge, wired as in libmimhid's
   [QUICKSTART](https://github.com/nemarpuc/libmimhid/blob/main/docs/QUICKSTART.md).
   Two USB ports are used when the board is plugged into the same PC.
-- A host PC: Windows 10/11 x64 with Moonlight-Web installed (official installer),
-  Linux x86_64, or macOS (Apple silicon). Windows is the only one tried on hardware.
+- A host PC: Windows 10/11 x64, Linux x86_64, or macOS (Apple silicon). Windows is the only one
+  tried on hardware.
 
 ## Install
 
-Take the newest release of this repository. Each release carries, for one upstream
-Moonlight-Web version: the Windows zip (with `install.ps1` and `rollback.ps1`, keep
-them together), the Linux AppImage and the macOS zip (with `install.sh`), and
-`mimhid.example.json`.
+Take the newest release of this repository. It holds one package per system, and **each package
+carries its own installer, `mimhid.example.json` and a README**: unpack it and run the installer.
 
-**Windows**
+| System | Package | Install | Undo |
+|---|---|---|---|
+| Windows 10/11 x64 | `moonlight-web-mimhid-<ver>-win-x64.zip` | double-click `Install.bat` | the desktop shortcut "MoonlightWeb - back to official build", or `rollback.ps1` |
+| Linux x86_64 | `moonlight-web-mimhid-<ver>-linux-x86_64.tar.gz` | `bash install.sh install` | `bash install.sh rollback` |
+| macOS, Apple silicon | `moonlight-web-mimhid-<ver>-macos-arm64.zip` | `bash install.sh install` | `bash install.sh rollback` |
 
-```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1 -Source moonlight-web-mimhid-<ver>-win-x64.zip
-```
-
-It asks for administrator rights, keeps every file it replaces as `*.official`,
-and puts a shortcut on the desktop:
-
-- **MoonlightWeb - back to official build** (`rollback.ps1`)
-
-**Linux and macOS** use `install.sh` (bash):
-
-```sh
-bash install.sh install moonlight-web-mimhid-<ver>-x86_64.AppImage     # Linux, into ~/.local/bin
-bash install.sh install moonlight-web-mimhid-<ver>-macos-arm64.zip     # macOS, into /Applications
-bash install.sh update                                                  # fetch the newest release of this repository and install it
-bash install.sh rollback                                                # either OS
-```
-
-A MoonlightWeb it replaces is kept once as `*.official`; `rollback` puts it back.
+Windows asks for administrator rights, and the add-on replaces the files of an installed official
+MoonlightWeb (install that first). Linux puts the AppImage in `~/.local/bin` with a menu entry;
+macOS puts `MoonlightWeb.app` in `/Applications`. Every file or app it replaces is kept once as
+`*.official`, and the undo step puts it back.
 
 Upstream's autostart and stream-worker tasks keep working, as they already point
 at the install folder.
 
 **Updates.** The built-in update notice reads *this* repository's releases, so you are told about
 a new version only once it exists here, as the add-on build, and never offered the official
-installer. What the notice does depends on the system:
-
-- **Linux (AppImage):** the **Update** button works: it downloads this repository's AppImage and
-  replaces the running file.
-- **Windows and macOS:** the notice says to update the host PC and links the release page
-  ("What's new"); there is no one-click update, because the release holds a zip, not upstream's
-  installer. Download it and run `install.ps1` / `install.sh install` again; your `mimhid.json`
-  stays.
-- If you run upstream's own installer by hand, you have the official build again: run
-  `install.ps1` / `install.sh` again.
+installer. The notice links the release page ("What's new") and says to update the host PC; there is
+no one-click update, because the packages are archives with their own installer rather than
+upstream's installers. Download the new release and install it the same way (Linux and macOS:
+`bash install.sh update` does it); your `mimhid.json` stays. If you run upstream's own installer by
+hand, you have the official build again: install the add-on again.
 
 The release is built from the official tag with the official frontend, so the
 official entry link (`stream.moonlightweb.top/…`) opens it as before.
@@ -74,9 +56,10 @@ official entry link (`stream.moonlightweb.top/…`) opens it as before.
 - **The tag is upstream's.** Moonlight-Web `v0.4.1` becomes the release `v0.4.1` here, so the
   version a machine reports is a real release number. The official entry page
   (`stream.moonlightweb.top`) opens only official versions, file for file.
-- **What a release holds:** the Windows zip, the Linux AppImage, the macOS (Apple silicon) zip,
-  `install.ps1` / `rollback.ps1` / `install.sh`, and `mimhid.example.json`. Every download carries
-  the license texts and the way to get the exact source.
+- **What a release holds:** exactly three packages (Windows x64, Linux x86_64, macOS Apple silicon),
+  each with its installer, `mimhid.example.json` and a README. Every download carries the license
+  texts and the way to get the exact source. The systems are the ones upstream builds: Windows x64
+  and ARM64, Linux x64, macOS arm64 (see [DESIGN.md](DESIGN.md#what-is-built-and-what-is-not)).
 - **Built automatically** once a day. A new upstream release is built and published here, normally
   within a day of it. Until then, a build you already run keeps working: the entry page judges a
   machine against the list of the version it reports, not against the newest one.

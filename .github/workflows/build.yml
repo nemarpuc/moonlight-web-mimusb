@@ -86,7 +86,7 @@ jobs:
           assets="$(gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null || true)"
           complete=false
           if printf '%s\n' "$assets" | grep -q 'win-x64.zip$' &&
-             printf '%s\n' "$assets" | grep -q '\.AppImage$' &&
+             printf '%s\n' "$assets" | grep -q 'linux-x86_64\.tar\.gz$' &&
              printf '%s\n' "$assets" | grep -q 'macos-arm64.zip$'; then complete=true; fi
           if [ "${FORCE:-false}" != "true" ] && [ "$complete" = true ] && [ "$prev" = "$lib" ]; then
             echo "$tag is already released here, complete, built with libmimhid $lib"
@@ -160,7 +160,14 @@ jobs:
           $ver = $env:TAG.TrimStart('v')
           New-Item -ItemType Directory -Force out | Out-Null
           python tools/licenses.py work work/dist/licenses
-          Compress-Archive -Path work/dist/* -DestinationPath "out/moonlight-web-mimhid-$ver-win-x64.zip"
+          # One folder: Install.bat and the scripts beside "app" (the program), so the zip is the whole package.
+          $name = "moonlight-web-mimhid-$ver-win-x64"
+          $pkg = "stage/$name"
+          New-Item -ItemType Directory -Force "$pkg/app" | Out-Null
+          Copy-Item work/dist/* "$pkg/app" -Recurse -Force
+          Copy-Item tools/package/Install.bat, tools/install.ps1, tools/rollback.ps1, mimhid.example.json "$pkg/"
+          Copy-Item tools/package/README-windows.txt "$pkg/README.txt"
+          Compress-Archive -Path $pkg -DestinationPath "out/$name.zip"
 
       - uses: actions/upload-artifact@v4
         if: steps.verify.outputs.ready == 'true'
@@ -244,6 +251,7 @@ jobs:
           cp "build/$APP" build/moonlightweb-launch AppDir/usr/bin/
           cp -r stage/frontend AppDir/usr/bin/frontend
           python3 "$GITHUB_WORKSPACE/tools/licenses.py" "$GITHUB_WORKSPACE/work" AppDir/usr/share/doc/moonlight-web-mimhid
+          cp "$GITHUB_WORKSPACE/mimhid.example.json" AppDir/usr/share/doc/moonlight-web-mimhid/
           cp frontend/assets/icon-512.png "AppDir/$APP.png"
           sed -e "s/^Name=.*/Name=$APP/" -e "s/^Exec=.*/Exec=$APP/" -e "s/^Icon=.*/Icon=$APP/" \
             backend/packaging/moonlightweb.desktop > "build/$APP.desktop"
@@ -263,14 +271,21 @@ jobs:
             sleep $((attempt * 20))
           done
           test -f "$LDAI_OUTPUT"
-          mkdir -p "$GITHUB_WORKSPACE/out"
-          cp "$LDAI_OUTPUT" "$GITHUB_WORKSPACE/out/"
+          # One folder: the AppImage with install.sh, the example config and a README beside it.
+          name="moonlight-web-mimhid-$VERSION-linux-x86_64"
+          mkdir -p "$GITHUB_WORKSPACE/out" "stage/$name"
+          cp "$LDAI_OUTPUT" "stage/$name/"
+          sed "s|@REPO@|$GITHUB_REPOSITORY|" "$GITHUB_WORKSPACE/tools/install.sh" > "stage/$name/install.sh"
+          chmod 755 "stage/$name/install.sh"
+          cp "$GITHUB_WORKSPACE/mimhid.example.json" "stage/$name/"
+          cp "$GITHUB_WORKSPACE/tools/package/README-linux.txt" "stage/$name/README.txt"
+          tar -czf "$GITHUB_WORKSPACE/out/$name.tar.gz" -C stage "$name"
 
       - uses: actions/upload-artifact@v4
         if: steps.verify.outputs.ready == 'true'
         with:
           name: linux
-          path: out/*.AppImage
+          path: out/*.tar.gz
 
   macos:
     needs: decide
@@ -374,7 +389,15 @@ jobs:
           codesign --force --timestamp=none -s - "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
           mkdir -p "$GITHUB_WORKSPACE/out"
-          ditto -c -k --keepParent "$APP" "$GITHUB_WORKSPACE/out/moonlight-web-mimhid-$VERSION-macos-arm64.zip"
+          # One folder: the app with install.sh, the example config and a README beside it.
+          name="moonlight-web-mimhid-$VERSION-macos-arm64"
+          mkdir -p "stage/$name"
+          ditto "$APP" "stage/$name/$APP"
+          sed "s|@REPO@|$GITHUB_REPOSITORY|" "$GITHUB_WORKSPACE/tools/install.sh" > "stage/$name/install.sh"
+          chmod 755 "stage/$name/install.sh"
+          cp "$GITHUB_WORKSPACE/mimhid.example.json" "stage/$name/"
+          cp "$GITHUB_WORKSPACE/tools/package/README-macos.txt" "stage/$name/README.txt"
+          ditto -c -k --keepParent "stage/$name" "$GITHUB_WORKSPACE/out/$name.zip"
 
       - uses: actions/upload-artifact@v4
         if: steps.verify.outputs.ready == 'true'
@@ -404,8 +427,6 @@ jobs:
       - name: Release
         shell: bash
         run: |
-          cp tools/install.ps1 tools/rollback.ps1 tools/install.sh mimhid.example.json out/
-          sed -i "s|@REPO@|$GITHUB_REPOSITORY|" out/install.sh
           # A retry that adds a missing platform rewrites the notes: keep the "libmimhid
           # changed" notice the first publish of this version wrote.
           kept="$(gh release view "$TAG" --json body --jq .body 2>/dev/null | tr -d '\r' | grep -m1 '^> \*\*libmimhid changed' || true)"
@@ -425,17 +446,18 @@ jobs:
               printf '%s\n' "$kept"
             fi
             echo
-            echo '- Windows: `moonlight-web-mimhid-*-win-x64.zip` + `install.ps1` (keep the two scripts together):'
-            echo '  `powershell -ExecutionPolicy Bypass -File install.ps1 -Source <zip>`. Undo with `rollback.ps1`.'
-            if ls out/*.AppImage >/dev/null 2>&1; then
-              echo '- Linux: `moonlight-web-mimhid-*-x86_64.AppImage` + `install.sh`: `bash install.sh install <AppImage>`. Undo: `bash install.sh rollback`.'
+            echo 'Every package holds its own installer, the example config and a README: unpack it and run the installer.'
+            echo '- Windows (x64): `moonlight-web-mimhid-*-win-x64.zip` -> `Install.bat`. Undo: the desktop shortcut or `rollback.ps1`.'
+            if ls out/*linux-x86_64.tar.gz >/dev/null 2>&1; then
+              echo '- Linux (x86_64): `moonlight-web-mimhid-*-linux-x86_64.tar.gz` -> `bash install.sh install`. Undo: `bash install.sh rollback`.'
               echo '  Needs access to the board'"'"'s serial port (group `dialout` or `uucp`).'
             fi
             if ls out/*macos-arm64.zip >/dev/null 2>&1; then
-              echo '- macOS (Apple silicon): `moonlight-web-mimhid-*-macos-arm64.zip` + `install.sh`: `bash install.sh install <zip>`. Undo: `bash install.sh rollback`.'
+              echo '- macOS (Apple silicon): `moonlight-web-mimhid-*-macos-arm64.zip` -> `bash install.sh install`. Undo: `bash install.sh rollback`.'
               echo '  Ad-hoc signed: allow it in System Settings > Privacy & Security.'
             fi
-            echo '- Settings: `mimhid.json` beside `settings.json` (see `mimhid.example.json`).'
+            echo '- Update: install the newer release the same way (Linux and macOS: `bash install.sh update`).'
+            echo '- Settings: `mimhid.json` beside `settings.json` (see `mimhid.example.json` in the package).'
             echo
             echo "Only the Windows build has been tried on hardware."
             echo

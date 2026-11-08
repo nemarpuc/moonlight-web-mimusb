@@ -3,7 +3,8 @@
 # Copyright (C) 2026 the moonlight-web-mimhid contributors
 # Install or remove the add-on build on Linux and macOS (Windows: install.ps1).
 #
-#   install.sh install <AppImage | MoonlightWeb zip> [--prefix DIR]
+#   install.sh install [AppImage | MoonlightWeb.app | release archive] [--prefix DIR]
+#                       (without an argument: the AppImage / MoonlightWeb.app beside this script)
 #   install.sh update [--prefix DIR]     fetch this add-on's newest release and install it
 #   install.sh rollback [--prefix DIR]
 #
@@ -55,14 +56,34 @@ stop_running() {
   sleep 1
 }
 
+# The first AppImage in directory $1 (empty when there is none).
+first_appimage() {
+  local f
+  for f in "$1"/*.AppImage; do
+    if [ -f "$f" ]; then printf '%s\n' "$f"; return 0; fi
+  done
+  return 0
+}
+
 do_install() {
-  if [ -z "$src" ] || [ ! -f "$src" ]; then die "give the AppImage (Linux) or the zip (macOS) to install"; fi
+  if [ -z "$src" ]; then
+    here="$(cd "$(dirname "$0")" && pwd)"
+    if [ "$os" = Darwin ]; then src="$here/MoonlightWeb.app"; else src="$(first_appimage "$here")"; fi
+  fi
+  if [ -z "$src" ] || { [ ! -f "$src" ] && [ ! -d "$src" ]; }; then die "nothing to install: run this script from the unpacked release, or give the AppImage / app / archive"; fi
+  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp" "${dl:-}"' EXIT
   mkdir -p "$prefix"
   stop_running
   if [ "$os" = Linux ]; then
+    img="$src"
+    case "$src" in
+      *.tar.gz) tar -xzf "$src" -C "$tmp"; img="$(find "$tmp" -name '*.AppImage' -type f | head -n1)" ;;
+      *) if [ -d "$src" ]; then img="$(first_appimage "$src")"; fi ;;
+    esac
+    [ -f "$img" ] || die "no AppImage in $src"
     # Only a file that is not what this script installed is kept as official.
     if [ -e "$target" ] && ! is_ours "$target" "$target" "$target.mimhid"; then keep_official "$target"; fi
-    install -m 0755 "$src" "$target"
+    install -m 0755 "$img" "$target"
     fingerprint "$target" > "$target.mimhid"
     mkdir -p "$(dirname "$desktop_file")"
     printf '[Desktop Entry]\nType=Application\nName=MoonlightWeb (mimhid)\nExec="%s"\nTerminal=false\nCategories=Network;\n' \
@@ -70,12 +91,16 @@ do_install() {
     id -nG | tr ' ' '\n' | grep -qxE 'dialout|uucp' ||
       echo "note: add yourself to the serial group for the board: sudo usermod -aG dialout \$USER (uucp on Arch), then sign in again"
   else
-    tmp="$(mktemp -d)"; trap 'rm -rf "$tmp" "${dl:-}"' EXIT
-    ditto -x -k "$src" "$tmp"
-    [ -d "$tmp/MoonlightWeb.app" ] || die "no MoonlightWeb.app in $src"
+    if [ -d "$src" ]; then
+      case "$src" in */MoonlightWeb.app) app="$src" ;; *) app="$src/MoonlightWeb.app" ;; esac
+    else
+      ditto -x -k "$src" "$tmp"
+      app="$(find "$tmp" -maxdepth 2 -name MoonlightWeb.app -type d | head -n1)"
+    fi
+    [ -d "$app" ] || die "no MoonlightWeb.app in $src"
     exe="Contents/MacOS/MoonlightWeb"
     if [ -e "$target" ] && ! is_ours "$target" "$target/$exe" "$target/Contents/mimhid.marker"; then keep_official "$target"; else rm -rf "$target"; fi
-    ditto "$tmp/MoonlightWeb.app" "$target"
+    ditto "$app" "$target"
     fingerprint "$target/$exe" > "$target/Contents/mimhid.marker"
     xattr -dr com.apple.quarantine "$target" 2>/dev/null || true
   fi
@@ -90,7 +115,7 @@ do_update() {
   case "$REPO" in @*) die "this copy does not know its repository; download install.sh from a release" ;; esac
   command -v curl >/dev/null 2>&1 || die "curl is needed for update"
   local pattern
-  if [ "$os" = Linux ]; then pattern='x86_64\.AppImage'; else pattern='macos-arm64\.zip'; fi
+  if [ "$os" = Linux ]; then pattern='linux-x86_64\.tar\.gz'; else pattern='macos-arm64\.zip'; fi
   local json url name tmp
   json="$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPO/releases/latest")" ||
     die "could not read the newest release of $REPO"

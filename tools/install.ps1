@@ -3,8 +3,11 @@
 <#
 Put the add-on build in place of the installed MoonlightWeb.
 
-  powershell -ExecutionPolicy Bypass -File install.ps1 -Source <dist folder or release zip>
+  Install.bat                       (double-click it: it runs this script)
+  powershell -ExecutionPolicy Bypass -File install.ps1 [-Source <app folder or release zip>]
                                                        [-InstallDir "C:\Program Files\MoonlightWeb"]
+
+Without -Source it installs the "app" folder beside this script (what the release zip holds).
 
 What it does, in order:
   1. asks for administrator rights if it has none;
@@ -20,7 +23,7 @@ they now start this build. Upstream's update button installs the official build
 again: run this script again after it.
 #>
 param(
-    [Parameter(Mandatory = $true)][string]$Source,
+    [string]$Source = (Join-Path $PSScriptRoot 'app'),
     [string]$InstallDir = "$env:ProgramFiles\MoonlightWeb"
 )
 $ErrorActionPreference = 'Stop'
@@ -40,6 +43,7 @@ if (-not (Test-Path (Join-Path $InstallDir 'MoonlightWeb.exe'))) {
 
 # A release zip is unpacked beside the script; a folder is used as it is.
 $staging = $null
+if (-not (Test-Path $Source)) { throw "no such file or folder: $Source (run this script from the unpacked release)" }
 if ((Get-Item $Source).PSIsContainer) {
     $dist = (Resolve-Path $Source).Path
 } else {
@@ -71,6 +75,10 @@ if ((Get-Item $Source).PSIsContainer) {
     if ($owner -notin @('S-1-5-32-544', 'S-1-5-18')) { throw "$staging is owned by $owner" }
     Expand-Archive -Path $Source -DestinationPath $staging
     $dist = $staging
+    # A release zip keeps the program in its "app" folder, beside the scripts.
+    $inner = Get-ChildItem $staging -Directory -Force | Where-Object { Test-Path (Join-Path $_.FullName 'app\MoonlightWeb.exe') } | Select-Object -First 1
+    if ($inner) { $dist = Join-Path $inner.FullName 'app' }
+    elseif (Test-Path (Join-Path $staging 'app\MoonlightWeb.exe')) { $dist = Join-Path $staging 'app' }
 }
 if (-not (Test-Path (Join-Path $dist 'MoonlightWeb.exe'))) { throw "no MoonlightWeb.exe in $dist" }
 

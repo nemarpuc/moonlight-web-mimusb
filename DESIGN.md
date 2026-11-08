@@ -117,7 +117,7 @@ the exact frontend, which `tools/prepare.py` and the workflow guarantee.
    when libmimhid changed since the release being replaced, say so at the top. It is marked
    "Latest" only when it is upstream's newest tag.
 
-Windows (zip), Linux (AppImage) and macOS (arm64 zip) are all packaged; only
+Windows (zip), Linux (tar.gz holding the AppImage) and macOS (arm64 zip) are all packaged; only
 Windows has run on hardware.
 
 `.github/workflows/patches.yml` runs on every push and daily: overlay and patches
@@ -172,14 +172,13 @@ When upstream publishes release X:
    nothing about X until step 2 is done, and then offers the add-on build. The notice
    (`/api/update/check`) picks the release asset by name: Windows `win-x64.exe`, macOS `.pkg`,
    Linux `.deb` / `.rpm` / `.AppImage` (`UpdateChecker::pickAsset`, upstream `backend/src/network/`).
-   - **Linux AppImage:** this repository's `*-x86_64.AppImage` matches. The Update button
-     downloads it, checks size and SHA-256, and `mv`s it over the running AppImage
-     (`SelfUpdater`, method `appimage`): the version rises to X with the add-on kept.
-   - **Windows and macOS:** nothing matches (the assets are zips). Upstream's banner would still
-     offer an Update button, which fails with "No installer published for this platform",
-     because `self_update.supported` ignores the asset. `patches/0004` makes it false when
-     no asset matched, so the banner reads "update the host PC to install it" with a link to the
-     release page; the user runs `install.ps1` / `install.sh`. The elevated Windows helper
+   - **Every system:** this repository's assets are archives (`win-x64.zip`,
+     `linux-x86_64.tar.gz`, `macos-arm64.zip`) that carry their own installer, so none matches
+     upstream's names. Upstream's banner would still offer an Update button, which fails with
+     "No installer published for this platform", because `self_update.supported` ignores the
+     asset. `patches/0004` makes it false when no asset matched, so the banner reads "update the
+     host PC to install it" with a link to the release page; the user installs the new release
+     the same way (Linux and macOS: `install.sh update`). The elevated Windows helper
      (`--update-apply`) would refuse anyway: it demands `<product>-installer-*win-x64.exe` with a
      SHA-256 (`UpdateApplyRules`).
 5. If a user runs upstream's own installer by hand, they get the official build of X: it works
@@ -205,9 +204,20 @@ GitHub also disables scheduled workflows in a public repository after 60 days wi
 repository activity (<https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/disabling-and-enabling-a-workflow>):
 check that `build.yml` is still enabled if releases stop appearing.
 
+## What is built and what is not
+
+Upstream's release workflow (`.github/workflows/release.yml` at v0.4.1) builds Windows x64 and
+ARM64, Linux x64 (.deb, .rpm, AppImage) and macOS arm64 only. This repository builds from
+upstream's source, so it can offer only what upstream builds and supports: **macOS Intel and Linux
+ARM are not built by upstream**, and this add-on does not add platforms upstream does not have.
+Windows ARM64 is built by upstream and could be added here; it is not yet (libmimhid's ARM64
+Windows library is cross-built there and not run in CI). Each package is one archive with its own
+installer: `Install.bat` + `install.ps1` + `rollback.ps1` (Windows, program in `app/`),
+`install.sh` (Linux, macOS), the example config and a README.
+
 ## Installing
 
-Linux and macOS: `tools/install.sh install <AppImage|zip>` / `rollback`, same
+Linux and macOS: `tools/install.sh install` (from the unpacked package, or with a path) / `rollback` / `update`, same
 `*.official` rule. Windows: `tools/install.ps1` replaces the files in `C:\Program Files\MoonlightWeb`
 after keeping the official ones as `*.official`. `tools/rollback.ps1` puts them
 back. Upstream's own tasks (autostart, stream worker) keep working: they
