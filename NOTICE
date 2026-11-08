@@ -1,0 +1,23 @@
+moonlight-web-mimhid
+
+This repository contains an unofficial add-on for Moonlight-Web. The add-on's
+own files (overlay/, patches/, tools/, tests/) are released under the GNU
+General Public License, version 3 or later, because they are combined with
+Moonlight-Web and its patches are derived from its sources.
+
+Moonlight-Web
+  Copyright (C) 2026 Bruno Martin <brunoocto@gmail.com>
+  GNU General Public License v3 -- https://github.com/linckosz/moonlight-web
+  This repository does not contain its source. Builds are made from the
+  official release tag; the copyright notice is kept in every file, and the
+  three patches and the one appended CMake line only change a few lines of upstream files.
+
+libmimhid
+  Copyright (c) 2026 libmimhid contributors
+  MIT License -- https://github.com/nemarpuc/libmimhid
+  Fetched at build time, at its newest release (named in the release notes and in
+  licenses/SOURCE.txt of every download), and linked statically.
+
+A binary release is accompanied by the corresponding source: the upstream tag
+named in the release notes, this repository at the commit that built it, and
+libmimhid at the tag named in the release notes.

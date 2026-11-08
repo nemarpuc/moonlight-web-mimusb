@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 the moonlight-web-mimhid contributors
+name: Patches
+
+# Does the add-on still apply? Runs on every push and daily, against upstream's
+# newest release (must pass) and its main branch (look-ahead: a failure here is
+# the warning that the NEXT release will break, so it reports but does not block).
+# Nothing is built or published; the real build is build.yml.
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [release, main]
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.target == 'main' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Overlay and patches onto upstream (${{ matrix.target }})
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          if [ "$TARGET" = main ]; then
+            python tools/prepare.py --ref main --out work
+          else
+            python tools/prepare.py --tag latest --out work
+          fi
+      - name: License bundle
+        run: python tools/licenses.py work /tmp/lic && cat /tmp/lic/SOURCE.txt
+      - name: The libmimhid backend compiles against upstream and libmimhid (syntax only)
+        shell: bash
+        run: |
+          g++ -std=c++17 -fsyntax-only -Wall -Wextra -DMOONLIGHTWEB_MIMHID \
+            -I work/moonlight-web/backend/native-host/src \
+            -I work/moonlight-web/backend/native-host/include \
+            -I work/libmimhid/include \
+            work/moonlight-web/backend/native-host/src/input/MimHidInput.cpp
+      - name: Config parser test
+        shell: bash
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Ioverlay/backend/native-host/src/input \
+            tests/test_config.cpp overlay/backend/native-host/src/input/MimHidConfig.cpp -o /tmp/tc
+          /tmp/tc
+      - name: install.sh syntax
+        if: matrix.target == 'release'
+        run: bash -n tools/install.sh && shellcheck tools/install.sh
+      - name: PowerShell scripts parse
+        if: matrix.target == 'release'
+        shell: pwsh
+        run: |
+          foreach ($f in 'tools/install.ps1', 'tools/rollback.ps1', 'tools/build-windows.ps1') {
+            $errs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$null, [ref]$errs)
+            if ($errs) { $errs | ForEach-Object { Write-Error "$f`: $_" }; exit 1 }
+          }

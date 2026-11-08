@@ -1,0 +1,472 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 the moonlight-web-mimhid contributors
+name: Build
+
+# Daily: if upstream has a newer release tag than this repo has released, or
+# libmimhid has a newer release than the one the newest release here was built
+# with, build with the add-on for Windows, Linux and macOS and publish the result.
+# Also runnable by hand for a tag.
+#
+# The release carries upstream's tag. libmimhid is always its newest release; the
+# version is written into the release notes ("libmimhid: vX.Y.Z"), which is also how
+# the next run knows what the release was built with. When it changes, the notes
+# tell the user to flash the board with that version's firmware.
+#
+# A patch that no longer applies FAILS the run (GitHub mails the owner) and
+# publishes nothing. A release whose official interface list is not published
+# yet at the entry server is skipped quietly and tried again the next day.
+#
+# Packaging follows upstream's own release workflow (linckosz/moonlight-web,
+# .github/workflows/release.yml), trimmed: no deb/rpm/pkg/signing/repositories.
+# Without upstream's MW_DOMAIN / MW_PDNS_TOKEN secrets the builds have no
+# built-in Internet-Access domain (LAN access and the official entry page work).
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Upstream tag to build (empty = newest)"
+        required: false
+        default: ''
+      force:
+        description: "Build even if this repo already released the tag"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+      version: ${{ steps.pick.outputs.version }}
+      needed: ${{ steps.pick.outputs.needed }}
+      qt: ${{ steps.pick.outputs.qt }}
+      libmimhid: ${{ steps.pick.outputs.libmimhid }}
+      previous_libmimhid: ${{ steps.pick.outputs.previous_libmimhid }}
+      latest: ${{ steps.pick.outputs.latest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pick the tag
+        id: pick
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WANTED: ${{ inputs.tag }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          tag="${WANTED:-}"
+          if [ -z "$tag" ]; then tag="$(python tools/prepare.py --print-latest)"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          # Is this the newest upstream release (then it becomes this repo's "Latest")?
+          newest="$(python tools/prepare.py --print-latest)"
+          if [ "$tag" = "$newest" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
+          # libmimhid's newest release, and the one an existing release here was built with.
+          lib="$(python tools/prepare.py --print-libmimhid-latest)"
+          echo "libmimhid=$lib" >> "$GITHUB_OUTPUT"
+          prev="$(gh release view "$tag" --json body --jq .body 2>/dev/null | tr -d '\r' | sed -n 's/^libmimhid: *\(v[0-9][0-9.]*\).*/\1/p' | head -n1 || true)"
+          echo "previous_libmimhid=$prev" >> "$GITHUB_OUTPUT"
+          # The Qt version upstream builds this release with.
+          yml="$(curl -fsSL "https://raw.githubusercontent.com/linckosz/moonlight-web/$tag/.github/workflows/release.yml")"
+          qt="$(printf '%s\n' "$yml" | grep -A3 'install-qt-action' | grep -m1 'version:' | sed 's/.*version:[[:space:]]*//; s/[[:space:]].*//')"
+          echo "qt=${qt:-6.11.2}" >> "$GITHUB_OUTPUT"
+          # A release is complete when it carries all three platforms. One that lacks
+          # a platform (its build failed that day) is tried again, and the missing
+          # file is added to the same release.
+          assets="$(gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          complete=false
+          if printf '%s\n' "$assets" | grep -q 'win-x64.zip$' &&
+             printf '%s\n' "$assets" | grep -q '\.AppImage$' &&
+             printf '%s\n' "$assets" | grep -q 'macos-arm64.zip$'; then complete=true; fi
+          if [ "${FORCE:-false}" != "true" ] && [ "$complete" = true ] && [ "$prev" = "$lib" ]; then
+            echo "$tag is already released here, complete, built with libmimhid $lib"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  windows:
+    needs: decide
+    if: needs.decide.outputs.needed == 'true'
+    runs-on: windows-latest
+    outputs:
+      ready: ${{ steps.verify.outputs.ready }}
+    env:
+      TAG: ${{ needs.decide.outputs.tag }}
+      LIBMIMHID: ${{ needs.decide.outputs.libmimhid }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Upstream at the tag + overlay + patches. A patch that does not apply
+      # fails this step, which is the signal that upstream moved.
+      - name: Prepare
+        shell: bash
+        run: python tools/prepare.py --tag "$TAG" --libmimhid-tag "$LIBMIMHID" --out work
+
+      # Is this a build the official entry page will open? If upstream has not
+      # published that release's list yet, stop without failing.
+      - name: Verify the interface
+        id: verify
+        shell: bash
+        run: |
+          set +e
+          python tools/verify.py work
+          rc=$?
+          if [ $rc -eq 3 ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::the official list for $TAG is not published yet; will retry"
+            exit 0
+          fi
+          [ $rc -eq 0 ] || exit $rc
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      # Same Qt install as upstream's release workflow: aqt 3.3.0 does not know
+      # Qt 6.11's repository layout, so upstream pins a commit that does.
+      - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+        if: steps.verify.outputs.ready == 'true'
+        with:
+          version: ${{ needs.decide.outputs.qt }}
+          arch: win64_msvc2022_64
+          modules: qtwebsockets
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b
+          py7zrversion: ==1.1.0
+          extra: --base https://download.qt.io
+
+      - name: Build
+        if: steps.verify.outputs.ready == 'true'
+        shell: pwsh
+        run: ./tools/build-windows.ps1 -Work work -QtDir $env:QT_ROOT_DIR
+
+      - name: Package
+        if: steps.verify.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          $ver = $env:TAG.TrimStart('v')
+          New-Item -ItemType Directory -Force out | Out-Null
+          python tools/licenses.py work work/dist/licenses
+          Compress-Archive -Path work/dist/* -DestinationPath "out/moonlight-web-mimhid-$ver-win-x64.zip"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.verify.outputs.ready == 'true'
+        with:
+          name: win
+          path: out/*.zip
+
+  linux:
+    needs: decide
+    if: needs.decide.outputs.needed == 'true'
+    # The build host sets the glibc floor of the AppImage (upstream's reason):
+    # 22.04 is the oldest image GitHub hosts.
+    runs-on: ubuntu-22.04
+    outputs:
+      ready: ${{ steps.verify.outputs.ready }}
+    env:
+      TAG: ${{ needs.decide.outputs.tag }}
+      VERSION: ${{ needs.decide.outputs.version }}
+      LIBMIMHID: ${{ needs.decide.outputs.libmimhid }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python tools/prepare.py --tag "$TAG" --libmimhid-tag "$LIBMIMHID" --out work
+      - name: Verify the interface
+        id: verify
+        run: |
+          set +e
+          python tools/verify.py work
+          rc=$?
+          if [ $rc -eq 3 ]; then echo "ready=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          [ $rc -eq 0 ] || exit $rc
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        if: steps.verify.outputs.ready == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libssl-dev libfuse2 wget \
+            libdrm-dev libva-dev libegl1-mesa-dev libgles2-mesa-dev libgbm-dev libpipewire-0.3-dev \
+            libsystemd-dev glslang-tools libdav1d-dev libx11-dev libxrandr-dev libxext-dev
+
+      - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+        if: steps.verify.outputs.ready == 'true'
+        with:
+          version: ${{ needs.decide.outputs.qt }}
+          modules: qtwebsockets
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b
+          py7zrversion: ==1.1.0
+          extra: --base https://download.qt.io
+
+      - name: Build
+        if: steps.verify.outputs.ready == 'true'
+        working-directory: work/moonlight-web
+        run: |
+          set -o pipefail
+          cmake -S backend -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DMW_VERSION="$VERSION" \
+            -DMW_MIMHID=ON -DMW_MIMHID_DIR="$GITHUB_WORKSPACE/work/libmimhid" | tee configure.log
+          # Upstream's guards: a build without its Linux backend is a stub.
+          grep -q 'Linux graphics backend ON' configure.log || { echo "::error::built without the Linux graphics backend"; exit 1; }
+          grep -q 'Linux audio (PipeWire' configure.log || { echo "::error::built without PipeWire audio"; exit 1; }
+          grep -q 'ScreenCast portal ON' configure.log || { echo "::error::built without the ScreenCast portal"; exit 1; }
+          cmake --build build --target mw-server moonlightweb-launch -j
+
+      - name: AppImage
+        if: steps.verify.outputs.ready == 'true'
+        working-directory: work/moonlight-web
+        env:
+          APP: MoonlightWeb
+          EXTRA_PLATFORM_PLUGINS: libqoffscreen.so
+          LDAI_OUTPUT: moonlight-web-mimhid-${{ needs.decide.outputs.version }}-x86_64.AppImage
+          LDAI_NO_APPSTREAM: 1
+        run: |
+          cmake --install build --prefix stage
+          mkdir -p AppDir/usr/bin
+          cp "build/$APP" build/moonlightweb-launch AppDir/usr/bin/
+          cp -r stage/frontend AppDir/usr/bin/frontend
+          python3 "$GITHUB_WORKSPACE/tools/licenses.py" "$GITHUB_WORKSPACE/work" AppDir/usr/share/doc/moonlight-web-mimhid
+          cp frontend/assets/icon-512.png "AppDir/$APP.png"
+          sed -e "s/^Name=.*/Name=$APP/" -e "s/^Exec=.*/Exec=$APP/" -e "s/^Icon=.*/Icon=$APP/" \
+            backend/packaging/moonlightweb.desktop > "build/$APP.desktop"
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy*.AppImage
+          # The graphics/audio stack stays the system's (upstream's excludes).
+          EXCL=(--exclude-library 'libva.so.*' --exclude-library 'libva-drm.so.*' --exclude-library 'libGLESv2.so.*')
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir -e "build/$APP" -d "build/$APP.desktop" \
+            -i "AppDir/$APP.png" "${EXCL[@]}" --plugin qt
+          test -f AppDir/usr/plugins/platforms/libqoffscreen.so
+          # The AppImage runtime is downloaded here; GitHub's servers answer 504
+          # now and then, so try a few times.
+          for attempt in 1 2 3 4; do
+            ./linuxdeploy-x86_64.AppImage --appdir AppDir "${EXCL[@]}" --output appimage && break
+            [ "$attempt" -lt 4 ] || exit 1
+            sleep $((attempt * 20))
+          done
+          test -f "$LDAI_OUTPUT"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp "$LDAI_OUTPUT" "$GITHUB_WORKSPACE/out/"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.verify.outputs.ready == 'true'
+        with:
+          name: linux
+          path: out/*.AppImage
+
+  macos:
+    needs: decide
+    if: needs.decide.outputs.needed == 'true'
+    runs-on: macos-15
+    outputs:
+      ready: ${{ steps.verify.outputs.ready }}
+    env:
+      TAG: ${{ needs.decide.outputs.tag }}
+      VERSION: ${{ needs.decide.outputs.version }}
+      LIBMIMHID: ${{ needs.decide.outputs.libmimhid }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python tools/prepare.py --tag "$TAG" --libmimhid-tag "$LIBMIMHID" --out work
+      - name: Verify the interface
+        id: verify
+        run: |
+          set +e
+          python tools/verify.py work
+          rc=$?
+          if [ $rc -eq 3 ]; then echo "ready=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          [ $rc -eq 0 ] || exit $rc
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        if: steps.verify.outputs.ready == 'true'
+        run: brew install cmake ninja openssl@3 pkg-config
+
+      - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
+        if: steps.verify.outputs.ready == 'true'
+        with:
+          version: ${{ needs.decide.outputs.qt }}
+          host: mac
+          arch: clang_64
+          modules: qtwebsockets
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b
+          py7zrversion: ==1.1.0
+          extra: --base https://download.qt.io
+
+      - name: Build
+        if: steps.verify.outputs.ready == 'true'
+        working-directory: work/moonlight-web
+        run: |
+          cmake -S backend -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DMW_VERSION="$VERSION" \
+            -DMW_MIMHID=ON -DMW_MIMHID_DIR="$GITHUB_WORKSPACE/work/libmimhid"
+          cmake --build build --target mw-server -j
+
+      # An .app bundle, signed ad hoc (as upstream's own build is when it has no
+      # signing identity): macOS asks again for Screen Recording and
+      # Accessibility after each update.
+      - name: Assemble the .app
+        if: steps.verify.outputs.ready == 'true'
+        working-directory: work/moonlight-web
+        env:
+          APP_NAME: MoonlightWeb
+          IDENT: com.moonlightweb.server
+        run: |
+          APP="$APP_NAME.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp "build/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
+          cmake --install build --prefix stage
+          cp -r stage/frontend "$APP/Contents/Resources/frontend"
+          ICON=frontend/assets/icon-512.png
+          mkdir icon.iconset
+          for s in 16 32 128 256; do
+            sips -z $s $s "$ICON" --out icon.iconset/icon_${s}x${s}.png >/dev/null
+            d=$((s * 2))
+            sips -z $d $d "$ICON" --out icon.iconset/icon_${s}x${s}@2x.png >/dev/null
+          done
+          sips -z 512 512 "$ICON" --out icon.iconset/icon_512x512.png >/dev/null
+          iconutil -c icns icon.iconset -o "$APP/Contents/Resources/$APP_NAME.icns"
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>${APP_NAME}</string>
+            <key>CFBundleIdentifier</key><string>${IDENT}</string>
+            <key>CFBundleName</key><string>${APP_NAME}</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleIconFile</key><string>${APP_NAME}</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>LSMinimumSystemVersion</key><string>12.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          python3 "$GITHUB_WORKSPACE/tools/licenses.py" "$GITHUB_WORKSPACE/work" "$APP/Contents/Resources/licenses"
+          macdeployqt "$APP"
+          find "$APP/Contents/Frameworks" \( -name '*.dylib' -o -name '*.framework' \) -print0 |
+            xargs -0 -I {} codesign --force --timestamp=none -s - {}
+          find "$APP/Contents/PlugIns" -name '*.dylib' -print0 2>/dev/null |
+            xargs -0 -I {} codesign --force --timestamp=none -s - {} || true
+          codesign --force --timestamp=none -s - --identifier "$IDENT" "$APP/Contents/MacOS/$APP_NAME"
+          codesign --force --timestamp=none -s - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          ditto -c -k --keepParent "$APP" "$GITHUB_WORKSPACE/out/moonlight-web-mimhid-$VERSION-macos-arm64.zip"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.verify.outputs.ready == 'true'
+        with:
+          name: macos
+          path: out/*.zip
+
+  publish:
+    needs: [decide, windows, linux, macos]
+    # Windows is the platform tried on hardware, so it alone is required. Linux and
+    # macOS are added when their builds pass; a failed one still turns the run red
+    # (and is tried again tomorrow), but does not hold back the others.
+    if: always() && needs.decide.outputs.needed == 'true' && needs.windows.result == 'success' && needs.windows.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.decide.outputs.tag }}
+      LIBMIMHID: ${{ needs.decide.outputs.libmimhid }}
+      PREVIOUS_LIBMIMHID: ${{ needs.decide.outputs.previous_libmimhid }}
+      IS_LATEST: ${{ needs.decide.outputs.latest }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Release
+        shell: bash
+        run: |
+          cp tools/install.ps1 tools/rollback.ps1 tools/install.sh mimhid.example.json out/
+          sed -i "s|@REPO@|$GITHUB_REPOSITORY|" out/install.sh
+          # A retry that adds a missing platform rewrites the notes: keep the "libmimhid
+          # changed" notice the first publish of this version wrote.
+          kept="$(gh release view "$TAG" --json body --jq .body 2>/dev/null | tr -d '\r' | grep -m1 '^> \*\*libmimhid changed' || true)"
+          if [ -z "$kept" ] && [ -n "$PREVIOUS_LIBMIMHID" ] && [ "$PREVIOUS_LIBMIMHID" != "$LIBMIMHID" ]; then
+            kept="> **libmimhid changed from $PREVIOUS_LIBMIMHID to $LIBMIMHID in this build.** Update the board's firmware to $LIBMIMHID, and compare your \`mimhid.json\` with the new \`mimhid.example.json\`."
+          fi
+          {
+            echo "Moonlight-Web $TAG with the physical-HID add-on (unofficial)."
+            echo
+            echo "libmimhid: $LIBMIMHID"
+            echo
+            echo "**Firmware:** the board must run the firmware of the same libmimhid version as this build."
+            echo "Write the $LIBMIMHID firmware to it (Pico: \`mimhid_firmware-rp2040-*.uf2\`, Pico 2: \`mimhid_firmware-rp2350-*.uf2\`;"
+            echo "other chips are on the same page): https://github.com/nemarpuc/libmimhid/releases/tag/$LIBMIMHID"
+            if [ -n "$kept" ]; then
+              echo
+              printf '%s\n' "$kept"
+            fi
+            echo
+            echo '- Windows: `moonlight-web-mimhid-*-win-x64.zip` + `install.ps1` (keep the two scripts together):'
+            echo '  `powershell -ExecutionPolicy Bypass -File install.ps1 -Source <zip>`. Undo with `rollback.ps1`.'
+            if ls out/*.AppImage >/dev/null 2>&1; then
+              echo '- Linux: `moonlight-web-mimhid-*-x86_64.AppImage` + `install.sh`: `bash install.sh install <AppImage>`. Undo: `bash install.sh rollback`.'
+              echo '  Needs access to the board'"'"'s serial port (group `dialout` or `uucp`).'
+            fi
+            if ls out/*macos-arm64.zip >/dev/null 2>&1; then
+              echo '- macOS (Apple silicon): `moonlight-web-mimhid-*-macos-arm64.zip` + `install.sh`: `bash install.sh install <zip>`. Undo: `bash install.sh rollback`.'
+              echo '  Ad-hoc signed: allow it in System Settings > Privacy & Security.'
+            fi
+            echo '- Settings: `mimhid.json` beside `settings.json` (see `mimhid.example.json`).'
+            echo
+            echo "Only the Windows build has been tried on hardware."
+            echo
+            echo "Source (GPL-3.0-or-later): upstream https://github.com/linckosz/moonlight-web/tree/$TAG,"
+            echo "this repository at $GITHUB_SHA (\`overlay/\`, \`patches/\`), libmimhid (MIT) https://github.com/nemarpuc/libmimhid."
+            echo "The licenses and these links are also inside every download (\`licenses/\`)."
+          } > notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Add what is missing (a platform that failed earlier) to the same release.
+            gh release upload "$TAG" out/* --clobber
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" out/* --title "$TAG + physical HID" --notes-file notes.md \
+              --target "$GITHUB_SHA" --latest="$IS_LATEST"
+          fi
+
+  # The add-on's own logic (configuration parsing, key map) on every platform,
+  # so a platform-specific slip shows up here.
+  portable-tests:
+    needs: decide
+    if: needs.decide.outputs.needed == 'true' && github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Config parser test
+        shell: bash
+        run: |
+          c++ -std=c++17 -Ioverlay/backend/native-host/src/input tests/test_config.cpp \
+            overlay/backend/native-host/src/input/MimHidConfig.cpp -o test_config
+          ./test_config

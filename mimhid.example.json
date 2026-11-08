@@ -1,0 +1,53 @@
+{
+  "enabled": true,
+  "discover_timeout_ms": 50,
+  "devices": [
+    {
+      "port": "auto",
+      "baud": 0,
+      "link": {
+        "handshake_timeout_ms": 50,
+        "control_timeout_ms": 500,
+        "reconnect_timeout_ms": 3000,
+        "send_timeout_ms": 100,
+        "drain_timeout_ms": 1000,
+        "ready_timeout_ms": 5000,
+        "max_report_bytes": 64,
+        "linux_hid": {
+          "descriptor_bytes": 4096,
+          "fields_per_report": 256,
+          "global_stack_depth": 4,
+          "report_size_bits": 256,
+          "usages": 12288,
+          "report_data_bits": 65528
+        }
+      },
+      "usb": {
+        "vid": "0x1209",
+        "pid": "0x0001",
+        "manufacturer": "MoonlightWeb",
+        "product": "MoonlightWeb HID",
+        "serial": "",
+        "bcd_device": "0x0100",
+        "bcd_usb": "0x0200",
+        "language_id": "0x0409",
+        "ep0_max_packet_size": 64,
+        "configuration_value": 1,
+        "remote_wakeup": true,
+        "self_powered": false,
+        "max_power_ma": 100
+      },
+      "keyboard": {
+        "layout": "us", "boot": false, "poll_ms": 1, "name": "", "country": 33,
+        "bcd_hid": "0x0111", "endpoint_address": "0x81", "max_packet": 64,
+        "usage_minimum": "0x04", "usage_maximum": "0xDD"
+      },
+      "mouse": {
+        "buttons": 5, "wheel": true, "pan": true, "boot": false, "poll_ms": 1, "name": "",
+        "bcd_hid": "0x0111", "endpoint_address": "0x82", "max_packet": 64,
+        "axis_minimum": -32767, "axis_maximum": 32767, "axis_bits": 16,
+        "wheel_minimum": -127, "wheel_maximum": 127, "wheel_bits": 8
+      }
+    }
+  ]
+}

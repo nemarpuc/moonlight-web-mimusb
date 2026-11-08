@@ -1,0 +1,220 @@
+# Design
+
+An **unofficial** add-on for [Moonlight-Web](https://github.com/linckosz/moonlight-web)
+(GPL-3.0, © Bruno Martin). It sends the viewer's keyboard and mouse through
+[libmimhid](https://github.com/nemarpuc/libmimhid) (MIT): a microcontroller
+board on a serial port that appears to a machine as a **real USB keyboard and
+mouse**. The board's USB side may be plugged into the very PC that runs the
+server.
+
+## Goals and non-goals
+
+| Goal | Non-goal |
+|---|---|
+| The smallest possible change to upstream | A settings page or API (they break with every upstream refactor) |
+| Works through the official `stream.moonlightweb.top` entry link | Gamepads, touch, pen, raw HID (add when asked for) |
+| Windows, Linux, macOS hosts | A fork: no upstream source is stored here |
+| One board, or several (keyboard and mouse on different boards) | Pretending to be another maker's USB device |
+
+## How it fits
+
+```
+browser ─ WebRTC ─▶ InputEvent ─▶ IInputSink::inject()
+                                      │
+                         ┌────────────┴─────────────┐
+                         ▼                          ▼
+                MimHidInput (this repo)      the OS sink upstream built
+                 keyboard/mouse → board       (SendInput / uinput / CGEvent)
+                 everything else ───────────▶  gamepads, Ctrl+Alt+Del, ...
+```
+
+`MimHidInput` **decorates** the sink upstream already creates. What it does not
+route goes to that sink unchanged, so an unconfigured or unplugged board costs
+a log line, not the session.
+
+### Routing
+
+- Keyboard events go to the first configured device with `keyboard.enabled`.
+- Mouse events go to the first configured device with `mouse.enabled`.
+- A class no device carries stays on the OS path.
+- **Guests are never routed to a board.** Upstream's gate that keeps invited
+  players out of administrator windows lives in the OS sink; a physical device
+  would walk around it. Only the owner (`allowElevatedInput`) is routed.
+
+### One device, or several
+
+`devices` is a list; each entry is one board on one serial port.
+
+- A device with both `keyboard` and `mouse` is one composite USB device: one
+  **interface** per class (not Report IDs), because the boot protocol (BIOS,
+  bootloaders) needs a keyboard and a mouse on interfaces of their own.
+- Two boards, one class each, are two independent USB devices.
+- `"port": "auto"` takes the next board discovery finds that no other entry has
+  claimed, so two `auto` entries get two different boards.
+- A board that cannot be opened drops only its own classes back to the OS.
+
+### Process-wide boards
+
+Opening a board makes the target see a USB device plugged in. Boards are
+opened once per process and kept, so a keyboard does not vanish and reappear at
+every stream. Changing `mimhid.json` takes a restart.
+
+## Configuration
+
+`mimhid.json`, beside upstream's `settings.json`
+(`%APPDATA%\MoonlightWeb\MoonlightWeb`, `~/.local/share/MoonlightWeb/MoonlightWeb`,
+`~/Library/Application Support/MoonlightWeb/MoonlightWeb`), or the path in
+`MW_MIMHID_CONFIG`. `"enabled": false` turns the add-on off. (`MW_MIMHID_DISABLE=1`
+exists too, but a stream worker is started by a scheduled task and never sees it.)
+See `mimhid.example.json`. No key has a default: `parseMimHidConfig` refuses a file that leaves one out and names it, and `MimHidInput.cpp` passes every value to libmimhid unchanged.
+
+Edited by hand; there is no UI.
+
+## What is patched in upstream
+
+Four existing files, a few lines each. Three are patches (`patches/`); the fourth
+gets one line appended by `tools/prepare.py`, so it has no hunk that can stop applying:
+
+| File | Change |
+|---|---|
+| `backend/native-host/CMakeLists.txt` | one appended `include(cmake/MimHid.cmake)`; the `MW_MIMHID` option and the build of libmimhid live in `overlay/.../cmake/MimHid.cmake` |
+| `…/platform/windows/WindowsSession.cpp` | wrap the sink: `wrapWithMimHid(...)` |
+| `…/platform/linux/LinuxSession.cpp` | the same |
+| `…/platform/macos/MacSession.mm` | the same |
+
+One more line is rewritten by `prepare.py` in CI: the update check's URL in
+`backend/src/network/UpdateChecker.cpp` now names this repository's releases
+(`$GITHUB_REPOSITORY`) instead of upstream's. The release here has upstream's tag,
+so version comparison is unchanged, but a user is told about a new version only
+when this add-on has built it. Windows and macOS assets here are zips, which the
+updater's one-click path does not take, so it shows the release page; install with
+`install.ps1` / `install.sh`. The exact-match check stops the build if upstream
+moves that URL. Local builds (no `GITHUB_REPOSITORY`) keep upstream's.
+
+Everything else is new files in `overlay/`, copied in as they are. **The
+frontend is never touched**: the official entry page holds every frontend file
+against the release's published list and refuses a machine that differs
+(`bootstrap/v1/boot.js`), and a build whose version is not an official release
+is refused too. So a build must carry the upstream tag's exact version, with
+the exact frontend, which `tools/prepare.py` and the workflow guarantee.
+
+## Build and release
+
+`.github/workflows/build.yml`, daily and on demand:
+
+1. Read upstream's newest `v*` tag and libmimhid's newest release; stop if this repo already
+   released that tag, complete, built with that libmimhid (the release notes' `libmimhid:` line).
+2. `tools/prepare.py`: clone upstream at the tag with submodules, copy
+   `overlay/`, apply `patches/`. A patch that does not apply **fails the run**
+   (GitHub then mails the owner); nothing is published.
+3. Fetch libmimhid at its newest release (all three platforms use the tag decided in step 1),
+   build with `MW_MIMHID=ON` and `MW_VERSION=<tag without v>`.
+4. Check the frontend against the official list for that version.
+5. Publish the packages with the source links GPL-3.0 asks for. The release carries upstream's tag;
+   its notes state the libmimhid version, tell the user to flash that version's firmware, and,
+   when libmimhid changed since the release being replaced, say so at the top. It is marked
+   "Latest" only when it is upstream's newest tag.
+
+Windows (zip), Linux (AppImage) and macOS (arm64 zip) are all packaged; only
+Windows has run on hardware.
+
+`.github/workflows/patches.yml` runs on every push and daily: overlay and patches
+onto upstream's newest release (must pass) and onto upstream `main` (look-ahead:
+a failure there warns that the next release will break). When a patch fails,
+`prepare.py` prints where each hunk's first line went in the new upstream.
+
+## Versions, the entry page and updates
+
+What follows was read from upstream's code and from the live entry server on
+2026-11-08. Upstream is `linckosz/moonlight-web` at commit `e31fd43` (2026-11-07);
+paths below are in that tree. Upstream may change any of it; re-check before relying on it.
+
+### How the entry page judges a version
+
+- A machine reports a version in `/api/app/manifest`. The entry page takes the release
+  number out of it (`bootstrap/v1/official.js`, `appVersionOf`) and downloads **the list
+  for that number** from `/v1/interfaces/<version>.json` (`fetchList`, same file).
+- It then compares every frontend file the machine sends with that list
+  (`bootstrap/v1/boot.js`, `officialCheck` and `shellIsTrusted`).
+  A file that differs, or a version with no list (HTTP 404), is refused when
+  `PRODUCTION_ENFORCES` is true, which it is (`official.js`, since upstream v0.4.1).
+  A list that cannot be fetched at all (not a 404) stops the start with "reload the page".
+- The check is **per version, not "newest only"**. Nothing in `bootstrap/v1/*.js` refuses a
+  version for being old. Observed on `stream.moonlightweb.top`: lists exist for 0.3.0,
+  0.3.1, 0.4.0 and 0.4.1 (HTTP 200); 0.4.2 (not released yet) and 9.9.9 give 404.
+- Upstream makes the list part of the release: `scripts/interface-list.mjs` builds it,
+  the release commit carries it, and CI's tag job checks that production serves it
+  (`.github/workflows/ci.yml`, job `interface-lists`, `live`).
+  So a list normally exists when upstream's release does.
+- Not known: whether upstream will ever remove old lists. Upstream announces an end
+  date only for installs of v0.2.4 or earlier (their sub-domains stop in February 2027,
+  `README.md`); those versions have no list and are already outside this check.
+
+### What this add-on's build does about it
+
+It is built from the upstream tag with the official frontend, so its version is a real
+release number and its files match that release's list. `prepare.py --tag` and
+`verify.py` keep it so; `build.yml` skips a tag whose list is not served yet and tries
+again the next day.
+
+### What happens today, step by step
+
+When upstream publishes release X:
+
+1. Upstream's list for X is served by the entry server (by their CI rule above).
+2. Within about a day (`build.yml`, cron 03:17 UTC) this repository builds X and
+   publishes it. A platform that failed is retried daily and added to the same release.
+3. Until then, a machine **already running an older add-on build keeps working**: its
+   own version's list is still there. Nobody is locked out by X existing.
+4. The built-in update notice reads this repository's `releases/latest`, so it says
+   nothing about X until step 2 is done, and then offers the add-on build.
+5. If a user presses upstream's update button, or installs upstream's own package,
+   they get the official build of X: it works with the entry page, but input goes
+   through the OS again until `install.ps1` / `install.sh` is run.
+6. If a patch no longer applies, nothing is published (the workflow fails and GitHub
+   mails the owner). Machines keep running their current build; no new version for
+   anyone until the patch is fixed.
+
+A build that is **not** an upstream tag version (a local build from a branch, or one
+whose tag differs) has no list, so the entry page refuses it. Local builds are for
+trying on the LAN, not through the entry link.
+
+### GitHub API use
+
+Used by `prepare.py` (tags), `build.yml` (release lookup, `GITHUB_TOKEN`), `install.sh update`
+and the app's update check (releases/latest). A few calls a day from the workflows. GitHub's
+documented limits are far above that, and the add-on's own use is nowhere near them:
+unauthenticated 60 requests/hour per IP, authenticated 5000/hour, an Actions
+`GITHUB_TOKEN` 1000/hour per repository
+(<https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api>).
+GitHub also disables scheduled workflows in a public repository after 60 days without
+repository activity (<https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/disabling-and-enabling-a-workflow>):
+check that `build.yml` is still enabled if releases stop appearing.
+
+## Installing
+
+Linux and macOS: `tools/install.sh install <AppImage|zip>` / `rollback`, same
+`*.official` rule. Windows: `tools/install.ps1` replaces the files in `C:\Program Files\MoonlightWeb`
+after keeping the official ones as `*.official`. `tools/rollback.ps1` puts them
+back. Upstream's own tasks (autostart, stream worker) keep working: they
+already point at that folder. Upstream's update button restores the official
+build; run `install.ps1` again after it.
+
+Both Windows scripts run elevated, so they are careful about what they touch:
+`install.ps1` unpacks a zip into a new `%ProgramData%` folder that is locked to
+Administrators and SYSTEM *before* anything is extracted (ProgramData's default lets ordinary
+users add files to a new folder), and refuses any file that is not a plain file inside it.
+`rollback.ps1` does not start MoonlightWeb afterwards, since a program started by an elevated
+script would run elevated; the user starts it as usual. The scripts install what the user
+gives them: take the zip from a release of this repository.
+
+## Known limits
+
+- Absolute pointer positions (touch trackpad) become relative moves from the
+  previous position; the target's pointer acceleration applies.
+- Text typing (`Utf8Text`, `CharDown`) is US-layout ASCII. HID names key
+  positions; the target's layout decides the character.
+- JIS: the Yen, Ro, Kana, Henkan and Muhenkan keys are sent; a full positional
+  remap of the other JIS keys is not done.
+- Only verified on Windows with one board. Several boards, Linux and macOS are
+  written to the same design and compiled, not exercised on hardware.
