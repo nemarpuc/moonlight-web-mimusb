@@ -1,7 +1,7 @@
 moonlight-web-mimhid
 
 This repository contains an unofficial add-on for Moonlight-Web. The add-on's
-own files (overlay/, patches/, tools/, tests/) are released under the GNU
+own files (overlay/, patches/, installer/, tools/, tests/) are released under the GNU
 General Public License, version 3 or later, because they are combined with
 Moonlight-Web and its patches are derived from its sources.
 
@@ -17,6 +17,10 @@ libmimhid
   MIT License -- https://github.com/nemarpuc/libmimhid
   Fetched at build time, at its newest release (named in the release notes and in
   licenses/SOURCE.txt of every download), and linked statically.
+
+Dear ImGui (MIT, Omar Cornut), GLFW (zlib, Marcus Geelnard and Camilla Löwy) and the Roboto font
+(Apache-2.0, Google) are linked into or shipped with the installer; their licenses are in
+licenses/ of every download.
 
 A binary release is accompanied by the corresponding source: the upstream tag
 named in the release notes, this repository at the commit that built it, and

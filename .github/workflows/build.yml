@@ -49,6 +49,7 @@ jobs:
       libmimhid: ${{ steps.pick.outputs.libmimhid }}
       previous_libmimhid: ${{ steps.pick.outputs.previous_libmimhid }}
       latest: ${{ steps.pick.outputs.latest }}
+      installer: ${{ steps.pick.outputs.installer }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -76,6 +77,11 @@ jobs:
           echo "libmimhid=$lib" >> "$GITHUB_OUTPUT"
           prev="$(gh release view "$tag" --json body --jq .body 2>/dev/null | tr -d '\r' | sed -n 's/^libmimhid: *\(v[0-9][0-9.]*\).*/\1/p' | head -n1 || true)"
           echo "previous_libmimhid=$prev" >> "$GITHUB_OUTPUT"
+          # The installer lives in this repository, not upstream: its tree id is written into
+          # the notes too, so a change to it rebuilds (and re-uploads) the newest release.
+          inst="$(git rev-parse HEAD:installer)"
+          echo "installer=$inst" >> "$GITHUB_OUTPUT"
+          prev_inst="$(gh release view "$tag" --json body --jq .body 2>/dev/null | tr -d '\r' | sed -n 's/^installer: *\([0-9a-f]\{40\}\).*/\1/p' | head -n1 || true)"
           # The Qt version upstream builds this release with.
           yml="$(curl -fsSL "https://raw.githubusercontent.com/linckosz/moonlight-web/$tag/.github/workflows/release.yml")"
           qt="$(printf '%s\n' "$yml" | grep -A3 'install-qt-action' | grep -m1 'version:' | sed 's/.*version:[[:space:]]*//; s/[[:space:]].*//')"
@@ -88,8 +94,8 @@ jobs:
           if printf '%s\n' "$assets" | grep -q 'win-x64.zip$' &&
              printf '%s\n' "$assets" | grep -q 'linux-x86_64\.tar\.gz$' &&
              printf '%s\n' "$assets" | grep -q 'macos-arm64.zip$'; then complete=true; fi
-          if [ "${FORCE:-false}" != "true" ] && [ "$complete" = true ] && [ "$prev" = "$lib" ]; then
-            echo "$tag is already released here, complete, built with libmimhid $lib"
+          if [ "${FORCE:-false}" != "true" ] && [ "$complete" = true ] && [ "$prev" = "$lib" ] && [ "$prev_inst" = "$inst" ]; then
+            echo "$tag is already released here, complete, built with libmimhid $lib and installer $inst"
             echo "needed=false" >> "$GITHUB_OUTPUT"
           else
             echo "needed=true" >> "$GITHUB_OUTPUT"
@@ -153,21 +159,21 @@ jobs:
         shell: pwsh
         run: ./tools/build-windows.ps1 -Work work -QtDir $env:QT_ROOT_DIR
 
+      # The installer is built with the static MSVC runtime, so it needs nothing installed.
+      - name: Build the installer
+        if: steps.verify.outputs.ready == 'true'
+        shell: bash
+        run: |
+          cmake -S installer -B build-installer -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake --build build-installer --config Release
+
       - name: Package
         if: steps.verify.outputs.ready == 'true'
-        shell: pwsh
+        shell: bash
         run: |
-          $ver = $env:TAG.TrimStart('v')
-          New-Item -ItemType Directory -Force out | Out-Null
           python tools/licenses.py work work/dist/licenses
-          # One folder: Install.bat and the scripts beside "app" (the program), so the zip is the whole package.
-          $name = "moonlight-web-mimhid-$ver-win-x64"
-          $pkg = "stage/$name"
-          New-Item -ItemType Directory -Force "$pkg/app" | Out-Null
-          Copy-Item work/dist/* "$pkg/app" -Recurse -Force
-          Copy-Item tools/package/Install.bat, tools/install.ps1, tools/rollback.ps1, mimhid.example.json "$pkg/"
-          Copy-Item tools/package/README-windows.txt "$pkg/README.txt"
-          Compress-Archive -Path $pkg -DestinationPath "out/$name.zip"
+          python tools/package.py --system win --version "${TAG#v}" --program work/dist \
+            --installer build-installer/Release/installer.exe --deps build-installer/_deps --out out
 
       - uses: actions/upload-artifact@v4
         if: steps.verify.outputs.ready == 'true'
@@ -212,7 +218,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config libssl-dev libfuse2 wget \
             libdrm-dev libva-dev libegl1-mesa-dev libgles2-mesa-dev libgbm-dev libpipewire-0.3-dev \
-            libsystemd-dev glslang-tools libdav1d-dev libx11-dev libxrandr-dev libxext-dev
+            libsystemd-dev glslang-tools libdav1d-dev libx11-dev libxrandr-dev libxext-dev \
+            libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols \
+            libgl1-mesa-dev
 
       - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         if: steps.verify.outputs.ready == 'true'
@@ -271,15 +279,19 @@ jobs:
             sleep $((attempt * 20))
           done
           test -f "$LDAI_OUTPUT"
-          # One folder: the AppImage with install.sh, the example config and a README beside it.
-          name="moonlight-web-mimhid-$VERSION-linux-x86_64"
-          mkdir -p "$GITHUB_WORKSPACE/out" "stage/$name"
-          cp "$LDAI_OUTPUT" "stage/$name/"
-          sed "s|@REPO@|$GITHUB_REPOSITORY|" "$GITHUB_WORKSPACE/tools/install.sh" > "stage/$name/install.sh"
-          chmod 755 "stage/$name/install.sh"
-          cp "$GITHUB_WORKSPACE/mimhid.example.json" "stage/$name/"
-          cp "$GITHUB_WORKSPACE/tools/package/README-linux.txt" "stage/$name/README.txt"
-          tar -czf "$GITHUB_WORKSPACE/out/$name.tar.gz" -C stage "$name"
+          cp "$LDAI_OUTPUT" "$GITHUB_WORKSPACE/work/MoonlightWeb.AppImage"
+
+      - name: Build the installer
+        if: steps.verify.outputs.ready == 'true'
+        run: |
+          cmake -S installer -B build-installer -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-installer
+
+      - name: Package
+        if: steps.verify.outputs.ready == 'true'
+        run: |
+          python3 tools/package.py --system linux --version "$VERSION" --program work/MoonlightWeb.AppImage \
+            --installer build-installer/installer --deps build-installer/_deps --out out
 
       - uses: actions/upload-artifact@v4
         if: steps.verify.outputs.ready == 'true'
@@ -388,16 +400,23 @@ jobs:
           codesign --force --timestamp=none -s - --identifier "$IDENT" "$APP/Contents/MacOS/$APP_NAME"
           codesign --force --timestamp=none -s - "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
-          mkdir -p "$GITHUB_WORKSPACE/out"
-          # One folder: the app with install.sh, the example config and a README beside it.
-          name="moonlight-web-mimhid-$VERSION-macos-arm64"
-          mkdir -p "stage/$name"
-          ditto "$APP" "stage/$name/$APP"
-          sed "s|@REPO@|$GITHUB_REPOSITORY|" "$GITHUB_WORKSPACE/tools/install.sh" > "stage/$name/install.sh"
-          chmod 755 "stage/$name/install.sh"
-          cp "$GITHUB_WORKSPACE/mimhid.example.json" "stage/$name/"
-          cp "$GITHUB_WORKSPACE/tools/package/README-macos.txt" "stage/$name/README.txt"
-          ditto -c -k --keepParent "stage/$name" "$GITHUB_WORKSPACE/out/$name.zip"
+          mv "$APP" "$GITHUB_WORKSPACE/work/$APP"
+
+      - name: Build the installer
+        if: steps.verify.outputs.ready == 'true'
+        run: |
+          cmake -S installer -B build-installer -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+          cmake --build build-installer
+          # Ad hoc, like the app: an unsigned program is refused outright on Apple silicon.
+          codesign --force --timestamp=none -s - build-installer/installer
+
+      - name: Package
+        if: steps.verify.outputs.ready == 'true'
+        run: |
+          mkdir -p out
+          python3 tools/package.py --system macos --version "$VERSION" --program work/MoonlightWeb.app \
+            --installer build-installer/installer --deps build-installer/_deps --out out
 
       - uses: actions/upload-artifact@v4
         if: steps.verify.outputs.ready == 'true'
@@ -417,6 +436,7 @@ jobs:
       LIBMIMHID: ${{ needs.decide.outputs.libmimhid }}
       PREVIOUS_LIBMIMHID: ${{ needs.decide.outputs.previous_libmimhid }}
       IS_LATEST: ${{ needs.decide.outputs.latest }}
+      INSTALLER: ${{ needs.decide.outputs.installer }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -437,6 +457,7 @@ jobs:
             echo "Moonlight-Web $TAG with the physical-HID add-on (unofficial)."
             echo
             echo "libmimhid: $LIBMIMHID"
+            echo "installer: $INSTALLER"
             echo
             echo "**Firmware:** the board must run the firmware of the same libmimhid version as this build."
             echo "Write the $LIBMIMHID firmware to it (Pico: \`mimhid_firmware-rp2040-*.uf2\`, Pico 2: \`mimhid_firmware-rp2350-*.uf2\`;"
@@ -446,18 +467,18 @@ jobs:
               printf '%s\n' "$kept"
             fi
             echo
-            echo 'Every package holds its own installer, the example config and a README: unpack it and run the installer.'
-            echo '- Windows (x64): `moonlight-web-mimhid-*-win-x64.zip` -> `Install.bat`. Undo: the desktop shortcut or `rollback.ps1`.'
+            echo 'Every package holds a window installer, the build it installs (`bin/`), the example config and a README: unpack it and run `installer`.'
+            echo '- Windows (x64): `moonlight-web-mimhid-*-win-x64.zip` -> `installer.exe` (asks for administrator rights).'
             if ls out/*linux-x86_64.tar.gz >/dev/null 2>&1; then
-              echo '- Linux (x86_64): `moonlight-web-mimhid-*-linux-x86_64.tar.gz` -> `bash install.sh install`. Undo: `bash install.sh rollback`.'
+              echo '- Linux (x86_64): `moonlight-web-mimhid-*-linux-x86_64.tar.gz` -> `./installer`.'
               echo '  Needs access to the board'"'"'s serial port (group `dialout` or `uucp`).'
             fi
             if ls out/*macos-arm64.zip >/dev/null 2>&1; then
-              echo '- macOS (Apple silicon): `moonlight-web-mimhid-*-macos-arm64.zip` -> `bash install.sh install`. Undo: `bash install.sh rollback`.'
+              echo '- macOS (Apple silicon): `moonlight-web-mimhid-*-macos-arm64.zip` -> `installer`.'
               echo '  Ad-hoc signed: allow it in System Settings > Privacy & Security.'
             fi
-            echo '- Update: install the newer release the same way (Linux and macOS: `bash install.sh update`).'
-            echo '- Settings: `mimhid.json` beside `settings.json` (see `mimhid.example.json` in the package).'
+            echo '- Undo: "Back to official" in the same window. Update: run the newer release'"'"'s installer the same way.'
+            echo '- Settings: `mimhid.json` beside `settings.json` (the installer writes it; `mimhid.example.json` is in the package).'
             echo
             echo "Only the Windows build has been tried on hardware."
             echo

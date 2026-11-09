@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 the moonlight-web-mimhid contributors
+name: Installer
+
+# The installer (installer/) and the packaging scripts, on every system a release
+# is made for: build the window and the command line, run the unit tests, and
+# check the package layout end to end with a stand-in program.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            system: linux
+          - os: macos-15
+            system: macos
+          - os: windows-latest
+            system: win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependencies (Linux)
+        if: matrix.system == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols libgl1-mesa-dev
+      - name: Build and test (Linux, macOS)
+        if: matrix.system != 'win'
+        run: |
+          cmake -S installer -B build-installer -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DMWI_BUILD_TESTS=ON -DMWI_WERROR=ON
+          cmake --build build-installer
+          ctest --test-dir build-installer --output-on-failure
+      - name: Build and test (Windows)
+        if: matrix.system == 'win'
+        shell: bash
+        run: |
+          cmake -S installer -B build-installer -DMWI_BUILD_TESTS=ON -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake --build build-installer --config Release
+          ctest --test-dir build-installer -C Release --output-on-failure
+      - name: Package with a stand-in program, then install and undo it
+        shell: bash
+        run: |
+          set -euo pipefail
+          exe=build-installer/installer; [ "${{ matrix.system }}" = win ] && exe=build-installer/Release/installer.exe
+          mkdir -p fake/app out
+          case "${{ matrix.system }}" in
+            win)   echo stand-in > fake/app/MoonlightWeb.exe; program=fake/app ;;
+            linux) echo stand-in > fake/MoonlightWeb.AppImage; program=fake/MoonlightWeb.AppImage ;;
+            macos) mkdir -p fake/MoonlightWeb.app/Contents/MacOS; echo stand-in > fake/MoonlightWeb.app/Contents/MacOS/MoonlightWeb
+                   program=fake/MoonlightWeb.app ;;
+          esac
+          python tools/package.py --system "${{ matrix.system }}" --version 0.0.0 --program "$program" \
+            --installer "$exe" --deps build-installer/_deps --out out
+          ls -R out | head -40
+      - name: Install and undo against a stand-in official build (Linux, macOS)
+        if: matrix.system != 'win'
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/home"; mkdir -p "$HOME"
+          archive="$(ls out/*.tar.gz out/*.zip 2>/dev/null | head -n1)"
+          mkdir unpacked
+          case "$archive" in
+            *.tar.gz) tar -xzf "$archive" -C unpacked ;;
+            *) ditto -x -k "$archive" unpacked ;;
+          esac
+          cd unpacked/*
+          if [ "$(uname)" = Linux ]; then
+            mkdir -p "$HOME/.local/bin"; echo official > "$HOME/.local/bin/MoonlightWeb.AppImage"
+          fi
+          ./installer status
+          if [ "$(uname)" = Linux ]; then
+            ./installer install
+            test "$(./installer status)" = "Add-on installed"
+            ./installer rollback
+            test "$(cat "$HOME/.local/bin/MoonlightWeb.AppImage")" = official
+          fi

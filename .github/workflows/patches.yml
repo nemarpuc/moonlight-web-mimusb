@@ -58,14 +58,14 @@ jobs:
           c++ -std=c++17 -Wall -Wextra -Ioverlay/backend/native-host/src/input \
             tests/test_config.cpp overlay/backend/native-host/src/input/MimHidConfig.cpp -o /tmp/tc
           /tmp/tc
-      - name: install.sh syntax
+      - name: Packaging scripts compile
         if: matrix.target == 'release'
-        run: bash -n tools/install.sh && shellcheck tools/install.sh
+        run: python -m py_compile tools/package.py tools/make_manifest.py
       - name: PowerShell scripts parse
         if: matrix.target == 'release'
         shell: pwsh
         run: |
-          foreach ($f in 'tools/install.ps1', 'tools/rollback.ps1', 'tools/build-windows.ps1') {
+          foreach ($f in 'tools/build-windows.ps1') {
             $errs = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$null, [ref]$errs)
             if ($errs) { $errs | ForEach-Object { Write-Error "$f`: $_" }; exit 1 }

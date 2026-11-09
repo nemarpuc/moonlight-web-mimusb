@@ -90,7 +90,7 @@ One more line is rewritten by `prepare.py` in CI: the update check's URL in
 so version comparison is unchanged, but a user is told about a new version only
 when this add-on has built it. Windows and macOS assets here are zips, which the
 updater's one-click path does not take, so it shows the release page; install with
-`install.ps1` / `install.sh`. The exact-match check stops the build if upstream
+the package's `installer`. The exact-match check stops the build if upstream
 moves that URL. Local builds (no `GITHUB_REPOSITORY`) keep upstream's.
 
 Everything else is new files in `overlay/`, copied in as they are. **The
@@ -178,12 +178,12 @@ When upstream publishes release X:
      "No installer published for this platform", because `self_update.supported` ignores the
      asset. `patches/0004` makes it false when no asset matched, so the banner reads "update the
      host PC to install it" with a link to the release page; the user installs the new release
-     the same way (Linux and macOS: `install.sh update`). The elevated Windows helper
+     the same way. The elevated Windows helper
      (`--update-apply`) would refuse anyway: it demands `<product>-installer-*win-x64.exe` with a
      SHA-256 (`UpdateApplyRules`).
 5. If a user runs upstream's own installer by hand, they get the official build of X: it works
-   with the entry page, but input goes through the OS again until `install.ps1` /
-   `install.sh` is run.
+   with the entry page, but input goes through the OS again until the add-on's `installer`
+   is run again.
 6. If a patch no longer applies, nothing is published (the workflow fails and GitHub
    mails the owner). Machines keep running their current build; no new version for
    anyone until the patch is fixed.
@@ -194,7 +194,7 @@ trying on the LAN, not through the entry link.
 
 ### GitHub API use
 
-Used by `prepare.py` (tags), `build.yml` (release lookup, `GITHUB_TOKEN`), `install.sh update`
+Used by `prepare.py` (tags), `build.yml` (release lookup, `GITHUB_TOKEN`)
 and the app's update check (releases/latest). A few calls a day from the workflows. GitHub's
 documented limits are far above that, and the add-on's own use is nowhere near them:
 unauthenticated 60 requests/hour per IP, authenticated 5000/hour, an Actions
@@ -211,26 +211,45 @@ ARM64, Linux x64 (.deb, .rpm, AppImage) and macOS arm64 only. This repository bu
 upstream's source, so it can offer only what upstream builds and supports: **macOS Intel and Linux
 ARM are not built by upstream**, and this add-on does not add platforms upstream does not have.
 Windows ARM64 is built by upstream and could be added here; it is not yet (libmimhid's ARM64
-Windows library is cross-built there and not run in CI). Each package is one archive with its own
-installer: `Install.bat` + `install.ps1` + `rollback.ps1` (Windows, program in `app/`),
-`install.sh` (Linux, macOS), the example config and a README.
+Windows library is cross-built there and not run in CI). Each package is one archive: a window `installer`, the program in `bin/` with a
+`manifest.txt`, the example config, a README and the licenses.
 
 ## Installing
 
-Linux and macOS: `tools/install.sh install` (from the unpacked package, or with a path) / `rollback` / `update`, same
-`*.official` rule. Windows: `tools/install.ps1` replaces the files in `C:\Program Files\MoonlightWeb`
-after keeping the official ones as `*.official`. `tools/rollback.ps1` puts them
-back. Upstream's own tasks (autostart, stream worker) keep working: they
-already point at that folder. Upstream's own installer restores the official
-build; run `install.ps1` again after it.
+`installer/` is one C++20 program (Dear ImGui + GLFW, linked statically) for all three systems.
+The window is fixed (dark cards, one accent colour, the palette of aoahid_player); it has no
+settings of its own. `src/core.cpp` holds what it does and has no system call in it;
+`src/platform.cpp` holds where things live and how MoonlightWeb is stopped.
 
-Both Windows scripts run elevated, so they are careful about what they touch:
-`install.ps1` unpacks a zip into a new `%ProgramData%` folder that is locked to
-Administrators and SYSTEM *before* anything is extracted (ProgramData's default lets ordinary
-users add files to a new folder), and refuses any file that is not a plain file inside it.
-`rollback.ps1` does not start MoonlightWeb afterwards, since a program started by an elevated
-script would run elevated; the user starts it as usual. The scripts install what the user
-gives them: take the zip from a release of this repository.
+- `bin/manifest.txt` (written by `tools/make_manifest.py`): the release version, then the SHA-256 and
+  path of every regular file in `bin/`. The installer refuses a `bin/` that does not match it
+  or a manifest path that leaves `bin/`, and checks the installed files against it after copying.
+- **Windows** merges file by file into `C:\Program Files\MoonlightWeb` (the folder holds files this
+  add-on knows nothing about). **Linux and macOS** replace one unit as a whole: the AppImage, or
+  `MoonlightWeb.app`.
+- A file in place is the add-on's only if it is byte for byte what was installed last time (the
+  record is `mimhid-install.txt` in the install folder on Windows, `install.txt` under
+  `~/.local/share/moonlight-web-mimhid` or `~/Library/Application Support/moonlight-web-mimhid`
+  elsewhere). Any other file is an official one (maybe a newer build that upstream's updater put
+  there) and becomes the one `*.official` copy, so undo never brings back an older official build.
+- The installer does not read the installed official build's version: it replaces the build as a whole,
+  so no version has to match. It shows the release's version, and whether the installed files are
+  the add-on's.
+- The Windows installer runs elevated (its manifest asks for it). It trusts the folder it is run
+  from, like any downloaded installer: take the package from a release of this repository.
+  Unlike the scripts it replaced, it does not stage an extraction under `%ProgramData%`; there is no
+  archive to extract, and the check against `manifest.txt` is for damage, not for an attacker who
+  can already write next to the installer.
+- `mimhid.json` is edited as text, key by key (`port`, `baud`, `usb.vid`, `usb.pid`, `manufacturer`,
+  `product`, `serial`); nothing is filled in. A file with two boards is not edited. The old file is
+  kept as `mimhid.json.bak`.
+
+Upstream's own tasks (autostart, stream worker) keep working: they already point at the install
+folder. Upstream's own installer restores the official build; run the add-on's installer again after it.
+
+**Versions.** The release carries upstream's tag; the installer has no version of its own. A change
+to `installer/` is rolled out by `build.yml` through the tree id of `installer/` written into the
+notes (`installer: <id>`): when it differs, the newest release is rebuilt and its files replaced.
 
 ## Known limits
 

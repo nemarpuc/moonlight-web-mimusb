@@ -23,19 +23,25 @@ physical keyboard takes.
 
 ## Install
 
-Take the newest release of this repository. It holds one package per system, and **each package
-carries its own installer, `mimhid.example.json` and a README**: unpack it and run the installer.
+Take the newest release of this repository. It holds one package per system. Unpack it and run
+**`installer`**: a small window that puts the build in `bin/` in place of the official
+MoonlightWeb, and lets you fill in the board's settings (port, USB VID/PID, names) and save
+`mimhid.json`. The package also carries `mimhid.example.json`, a README and the licenses.
 
-| System | Package | Install | Undo |
-|---|---|---|---|
-| Windows 10/11 x64 | `moonlight-web-mimhid-<ver>-win-x64.zip` | double-click `Install.bat` | the desktop shortcut "MoonlightWeb - back to official build", or `rollback.ps1` |
-| Linux x86_64 | `moonlight-web-mimhid-<ver>-linux-x86_64.tar.gz` | `bash install.sh install` | `bash install.sh rollback` |
-| macOS, Apple silicon | `moonlight-web-mimhid-<ver>-macos-arm64.zip` | `bash install.sh install` | `bash install.sh rollback` |
+| System | Package | Run |
+|---|---|---|
+| Windows 10/11 x64 | `moonlight-web-mimhid-<ver>-win-x64.zip` | `installer.exe` (asks for administrator rights) |
+| Linux x86_64 | `moonlight-web-mimhid-<ver>-linux-x86_64.tar.gz` | `./installer` |
+| macOS, Apple silicon | `moonlight-web-mimhid-<ver>-macos-arm64.zip` | `installer` (ad hoc signed: allow it in System Settings > Privacy & Security) |
 
-Windows asks for administrator rights, and the add-on replaces the files of an installed official
-MoonlightWeb (install that first). Linux puts the AppImage in `~/.local/bin` with a menu entry;
-macOS puts `MoonlightWeb.app` in `/Applications`. Every file or app it replaces is kept once as
-`*.official`, and the undo step puts it back.
+Press **Install**; **Back to official** undoes it. Without a screen: `installer status`,
+`installer install`, `installer rollback`.
+
+Windows replaces the files of an installed official MoonlightWeb (install that first). Linux puts
+the AppImage in `~/.local/bin` with a menu entry; macOS puts `MoonlightWeb.app` in `/Applications`.
+Every file or app it replaces is kept once as `*.official`, and the undo step puts it back. The
+installer checks every file of `bin/` against `bin/manifest.txt` before it copies anything, and
+again after.
 
 Upstream's autostart and stream-worker tasks keep working, as they already point
 at the install folder.
@@ -43,10 +49,9 @@ at the install folder.
 **Updates.** The built-in update notice reads *this* repository's releases, so you are told about
 a new version only once it exists here, as the add-on build, and never offered the official
 installer. The notice links the release page ("What's new") and says to update the host PC; there is
-no one-click update, because the packages are archives with their own installer rather than
-upstream's installers. Download the new release and install it the same way (Linux and macOS:
-`bash install.sh update` does it); your `mimhid.json` stays. If you run upstream's own installer by
-hand, you have the official build again: install the add-on again.
+no one-click update. Download the new release and run its `installer` the same way; your
+`mimhid.json` stays. If you run upstream's own installer by hand, you have the official build
+again: run the add-on's installer again.
 
 The release is built from the official tag with the official frontend, so the
 official entry link (`stream.moonlightweb.top/…`) opens it as before.
@@ -57,7 +62,7 @@ official entry link (`stream.moonlightweb.top/…`) opens it as before.
   version a machine reports is a real release number. The official entry page
   (`stream.moonlightweb.top`) opens only official versions, file for file.
 - **What a release holds:** exactly three packages (Windows x64, Linux x86_64, macOS Apple silicon),
-  each with its installer, `mimhid.example.json` and a README. Every download carries the license
+  each with the installer, the `bin/` it installs, `mimhid.example.json` and a README. Every download carries the license
   texts and the way to get the exact source. The systems are the ones upstream builds: Windows x64
   and ARM64, Linux x64, macOS arm64 (see [DESIGN.md](DESIGN.md#what-is-built-and-what-is-not)).
 - **Built automatically** once a day. A new upstream release is built and published here, normally
@@ -76,8 +81,10 @@ official entry link (`stream.moonlightweb.top/…`) opens it as before.
 
 ## Configure
 
-Copy [`mimhid.example.json`](mimhid.example.json) to `mimhid.json` beside upstream's
-`settings.json` and edit it. Restart MoonlightWeb after a change. There is no UI.
+The installer's window edits the board's keys and saves `mimhid.json` beside upstream's
+`settings.json`; the rest of the file stays as it is. You can also copy
+[`mimhid.example.json`](mimhid.example.json) there and edit it by hand. Restart MoonlightWeb after a change.
+Moonlight-Web itself has no settings page for this.
 
 | OS | Folder |
 |---|---|
@@ -113,7 +120,7 @@ testing; a device you hand to others needs IDs of its own — never copy another
   `port` (`auto` finds the first board) and that the serial port is yours:
   Linux needs the `dialout` (Debian, Ubuntu) or `uucp` (Arch) group, then sign in again.
 - **The first 5 seconds after plugging the board** still use the OS input; this is by design.
-- **After upstream's own installer** the official build is back: run `install.ps1` / `install.sh` again.
+- **After upstream's own installer** the official build is back: run the add-on's `installer` again.
 - **The entry page refuses the build.** The build's version must be an official
   release; a build from a branch is never published (see [DESIGN.md](DESIGN.md)).
 
@@ -134,6 +141,8 @@ and only the Windows build is exercised on hardware.
 
 `python tools/prepare.py --tag latest --out work`, then
 `tools/verify.py work`, then `tools/build-windows.ps1 -Work work -QtDir <Qt>`.
+The installer is built on its own: `cmake -S installer -B build-installer` (see
+`installer/`); `tools/package.py` lays out the release package.
 The GitHub workflow does the same daily for new upstream releases, and
 `patches.yml` checks on every push (and against upstream's `main`) that the
 patches still apply. Linux and macOS are built by the same workflow.
