@@ -3,8 +3,11 @@
 #include "platform.hpp"
 
 #include <cstdlib>
+#include <fcntl.h>
 #include <fstream>
+#include <string>
 #include <thread>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -13,9 +16,17 @@
 #include <windows.h>
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
+#include <spawn.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #else
+#include <spawn.h>
+#include <sys/wait.h>
 #include <unistd.h>
+#endif
+
+#if !defined(_WIN32)
+extern char** environ;
 #endif
 
 namespace mwi {
@@ -26,11 +37,34 @@ std::string env(const char* name) {
     return value != nullptr ? value : "";
 }
 
-// Runs a fixed command line; whether it succeeded does not matter to the caller.
-void run_quietly(const std::string& command) {
+// Runs a program with its arguments, with no shell between: a path that holds a
+// quote or a space stays one argument. Whether it succeeded does not matter to the
+// caller (nothing running to stop, no flag to remove).
+void run_quietly(const std::vector<std::string>& argv) {
+#if defined(_WIN32)
+    // Only fixed command lines are used on Windows (no user text in them).
+    std::string command;
+    for (const std::string& part : argv)
+        command += (command.empty() ? "" : " ") + part;
+    command += " >nul 2>&1";
     if (std::system(command.c_str()) != 0) {
-        // Nothing running to stop, or no flag to remove: both are fine.
     }
+#else
+    std::vector<char*> pointers;
+    for (const std::string& part : argv)
+        pointers.push_back(const_cast<char*>(part.c_str()));
+    pointers.push_back(nullptr);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
+    pid_t pid = 0;
+    if (posix_spawnp(&pid, pointers[0], &actions, nullptr, pointers.data(), environ) == 0) {
+        int status = 0;
+        waitpid(pid, &status, 0);
+    }
+    posix_spawn_file_actions_destroy(&actions);
+#endif
 }
 
 [[maybe_unused]] fs::path home() { return from_utf8(env("HOME")); }
@@ -101,11 +135,12 @@ Plan default_plan(const fs::path& release_dir) {
 
 void stop_app() {
 #if defined(_WIN32)
-    run_quietly("taskkill /F /IM MoonlightWeb.exe >nul 2>&1");
+    run_quietly({"taskkill", "/F", "/IM", "MoonlightWeb.exe"});
 #elif defined(__APPLE__)
-    run_quietly("pkill -x MoonlightWeb >/dev/null 2>&1");
+    run_quietly({"pkill", "-x", "MoonlightWeb"});
 #else
-    run_quietly("pkill -x MoonlightWeb >/dev/null 2>&1; pkill -f '^/[^ ]*MoonlightWeb[.]AppImage' >/dev/null 2>&1");
+    run_quietly({"pkill", "-x", "MoonlightWeb"});
+    run_quietly({"pkill", "-f", "^/[^ ]*MoonlightWeb[.]AppImage"});
 #endif
     std::this_thread::sleep_for(std::chrono::seconds(1));
 }
@@ -116,7 +151,7 @@ void after_install(const Plan& plan) {
     (void)plan;
 #elif defined(__APPLE__)
     const std::string app = utf8(plan.dir / "MoonlightWeb.app");
-    run_quietly("xattr -dr com.apple.quarantine '" + app + "' >/dev/null 2>&1");
+    run_quietly({"xattr", "-dr", "com.apple.quarantine", app});
 #else
     const fs::path image = plan.dir / "MoonlightWeb.AppImage";
     fs::permissions(image, fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec |
