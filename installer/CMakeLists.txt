@@ -89,17 +89,17 @@ add_custom_command(
   COMMENT "Embedding Roboto-Medium.ttf"
   VERBATIM)
 
-set(windows_manifest "")
-if(WIN32)
-  # The official build lives in Program Files: the installer asks for rights up front.
-  set(windows_manifest src/installer.rc)
-endif()
-add_executable(mwi_installer src/main.cpp src/app.cpp src/theme.cpp "${font_cpp}" ${windows_manifest})
+add_executable(mwi_installer src/main.cpp src/app.cpp src/theme.cpp "${font_cpp}")
 set_target_properties(mwi_installer PROPERTIES OUTPUT_NAME installer WIN32_EXECUTABLE ON)
 target_link_libraries(mwi_installer PRIVATE mwi_core mwi_imgui)
 mwi_warnings(mwi_installer)
+if(APPLE)
+  target_compile_definitions(mwi_installer PRIVATE GL_SILENCE_DEPRECATION)
+endif()
 if(MSVC)
-  target_link_options(mwi_installer PRIVATE /ENTRY:mainCRTStartup)
+  target_link_options(mwi_installer PRIVATE /ENTRY:mainCRTStartup
+    # The official build lives in Program Files: ask for the rights up front.
+    "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # Built on an old distribution for its glibc: carry the C++ runtime along.
   target_link_options(mwi_installer PRIVATE -static-libstdc++ -static-libgcc)
