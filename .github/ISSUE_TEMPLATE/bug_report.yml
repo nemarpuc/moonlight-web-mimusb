@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible problem with the add-on, its installer or its build.
+title: "[bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not include keystrokes, passwords or other sensitive input in logs you attach.
+  - type: input
+    id: version
+    attributes:
+      label: Release and libmimusb version
+      description: The release tag, and the libmimusb version and board firmware version.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Host OS, board chip (RP2040 or RP2350), serial adapter and baud rate, target OS, and whether the board is plugged into the host itself.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: mimusb.json
+      description: The file, without anything private.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and observed behavior, with the log lines starting with [mimusb]
+    validations:
+      required: true
