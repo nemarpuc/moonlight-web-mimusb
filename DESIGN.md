@@ -2,7 +2,7 @@
 
 An **unofficial** add-on for [Moonlight-Web](https://github.com/linckosz/moonlight-web)
 (GPL-3.0, © Bruno Martin). It sends the viewer's keyboard and mouse through
-[libmimhid](https://github.com/nemarpuc/libmimhid) (MIT): a microcontroller
+[libmimusb](https://github.com/nemarpuc/libmimusb) (MIT): a microcontroller
 board on a serial port that appears to a machine as a **real USB keyboard and
 mouse**. The board's USB side may be plugged into the very PC that runs the
 server.
@@ -23,12 +23,12 @@ browser ─ WebRTC ─▶ InputEvent ─▶ IInputSink::inject()
                                       │
                          ┌────────────┴─────────────┐
                          ▼                          ▼
-                MimHidInput (this repo)      the OS sink upstream built
+                MimUsbInput (this repo)      the OS sink upstream built
                  keyboard/mouse → board       (SendInput / uinput / CGEvent)
                  everything else ───────────▶  gamepads, Ctrl+Alt+Del, ...
 ```
 
-`MimHidInput` **decorates** the sink upstream already creates. What it does not
+`MimUsbInput` **decorates** the sink upstream already creates. What it does not
 route goes to that sink unchanged, so an unconfigured or unplugged board costs
 a log line, not the session.
 
@@ -57,16 +57,16 @@ a log line, not the session.
 
 Opening a board makes the target see a USB device plugged in. Boards are
 opened once per process and kept, so a keyboard does not vanish and reappear at
-every stream. Changing `mimhid.json` takes a restart.
+every stream. Changing `mimusb.json` takes a restart.
 
 ## Configuration
 
-`mimhid.json`, beside upstream's `settings.json`
+`mimusb.json`, beside upstream's `settings.json`
 (`%APPDATA%\MoonlightWeb\MoonlightWeb`, `~/.local/share/MoonlightWeb/MoonlightWeb`,
 `~/Library/Application Support/MoonlightWeb/MoonlightWeb`), or the path in
-`MW_MIMHID_CONFIG`. `"enabled": false` turns the add-on off. (`MW_MIMHID_DISABLE=1`
+`MW_MIMUSB_CONFIG`. `"enabled": false` turns the add-on off. (`MW_MIMUSB_DISABLE=1`
 exists too, but a stream worker is started by a scheduled task and never sees it.)
-See `mimhid.example.json`. No key has a default: `parseMimHidConfig` refuses a file that leaves one out and names it, and `MimHidInput.cpp` passes every value to libmimhid unchanged.
+See `mimusb.example.json`. No key has a default: `parseMimUsbConfig` refuses a file that leaves one out and names it, and `MimUsbInput.cpp` passes every value to libmimusb unchanged.
 
 Edited by hand; there is no UI.
 
@@ -78,8 +78,8 @@ appended by `tools/prepare.py`, so it has no hunk that can stop applying:
 
 | File | Change |
 |---|---|
-| `backend/native-host/CMakeLists.txt` | one appended `include(cmake/MimHid.cmake)`; the `MW_MIMHID` option and the build of libmimhid live in `overlay/.../cmake/MimHid.cmake` |
-| `…/platform/windows/WindowsSession.cpp` | wrap the sink: `wrapWithMimHid(...)` |
+| `backend/native-host/CMakeLists.txt` | one appended `include(cmake/MimUsb.cmake)`; the `MW_MIMUSB` option and the build of libmimusb live in `overlay/.../cmake/MimUsb.cmake` |
+| `…/platform/windows/WindowsSession.cpp` | wrap the sink: `wrapWithMimUsb(...)` |
 | `…/platform/linux/LinuxSession.cpp` | the same |
 | `…/platform/macos/MacSession.mm` | the same |
 | `backend/src/main.cpp` | `/api/update/check`: `self_update.supported` is false when the update checker found no installer for this platform (see below) |
@@ -104,17 +104,17 @@ the exact frontend, which `tools/prepare.py` and the workflow guarantee.
 
 `.github/workflows/build.yml`, daily and on demand:
 
-1. Read upstream's newest `v*` tag and libmimhid's newest release; stop if this repo already
-   released that tag, complete, built with that libmimhid (the release notes' `libmimhid:` line).
+1. Read upstream's newest `v*` tag and libmimusb's newest release; stop if this repo already
+   released that tag, complete, built with that libmimusb (the release notes' `libmimusb:` line).
 2. `tools/prepare.py`: clone upstream at the tag with submodules, copy
    `overlay/`, apply `patches/`. A patch that does not apply **fails the run**
    (GitHub then mails the owner); nothing is published.
-3. Fetch libmimhid at its newest release (all three platforms use the tag decided in step 1),
-   build with `MW_MIMHID=ON` and `MW_VERSION=<tag without v>`.
+3. Fetch libmimusb at its newest release (all three platforms use the tag decided in step 1),
+   build with `MW_MIMUSB=ON` and `MW_VERSION=<tag without v>`.
 4. Check the frontend against the official list for that version.
 5. Publish the packages with the source links GPL-3.0 asks for. The release carries upstream's tag;
-   its notes state the libmimhid version, tell the user to flash that version's firmware, and,
-   when libmimhid changed since the release being replaced, say so at the top. It is marked
+   its notes state the libmimusb version, tell the user to flash that version's firmware, and,
+   when libmimusb changed since the release being replaced, say so at the top. It is marked
    "Latest" only when it is upstream's newest tag.
 
 Windows (zip), Linux (tar.gz holding the AppImage) and macOS (arm64 zip) are all packaged; only
@@ -210,7 +210,7 @@ Upstream's release workflow (`.github/workflows/release.yml` at v0.4.1) builds W
 ARM64, Linux x64 (.deb, .rpm, AppImage) and macOS arm64 only. This repository builds from
 upstream's source, so it can offer only what upstream builds and supports: **macOS Intel and Linux
 ARM are not built by upstream**, and this add-on does not add platforms upstream does not have.
-Windows ARM64 is built by upstream and could be added here; it is not yet (libmimhid's ARM64
+Windows ARM64 is built by upstream and could be added here; it is not yet (libmimusb's ARM64
 Windows library is cross-built there and not run in CI). Each package is one archive: a window `installer`, the program in `bin/` with a
 `manifest.txt`, the example config, a README and the licenses.
 
@@ -228,8 +228,8 @@ settings of its own. `src/core.cpp` holds what it does and has no system call in
   add-on knows nothing about). **Linux and macOS** replace one unit as a whole: the AppImage, or
   `MoonlightWeb.app`.
 - A file in place is the add-on's only if it is byte for byte what was installed last time (the
-  record is `mimhid-install.txt` in the install folder on Windows, `install.txt` under
-  `~/.local/share/moonlight-web-mimhid` or `~/Library/Application Support/moonlight-web-mimhid`
+  record is `mimusb-install.txt` in the install folder on Windows, `install.txt` under
+  `~/.local/share/moonlight-web-mimusb` or `~/Library/Application Support/moonlight-web-mimusb`
   elsewhere). Any other file is an official one (maybe a newer build that upstream's updater put
   there) and becomes the one `*.official` copy, so undo never brings back an older official build.
 - The installer does not read the installed official build's version: it replaces the build as a whole,
@@ -240,9 +240,9 @@ settings of its own. `src/core.cpp` holds what it does and has no system call in
   Unlike the scripts it replaced, it does not stage an extraction under `%ProgramData%`; there is no
   archive to extract, and the check against `manifest.txt` is for damage, not for an attacker who
   can already write next to the installer.
-- `mimhid.json` is edited as text, key by key (`port`, `baud`, `usb.vid`, `usb.pid`, `manufacturer`,
+- `mimusb.json` is edited as text, key by key (`port`, `baud`, `usb.vid`, `usb.pid`, `manufacturer`,
   `product`, `serial`); nothing is filled in. A file with two boards is not edited. The old file is
-  kept as `mimhid.json.bak`.
+  kept as `mimusb.json.bak`.
 
 Upstream's own tasks (autostart, stream worker) keep working: they already point at the install
 folder. Upstream's own installer restores the official build; run the add-on's installer again after it.

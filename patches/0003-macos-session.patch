@@ -4,7 +4,7 @@ index ccefbf5..9aa1811 100644
 +++ b/backend/native-host/src/platform/macos/MacSession.mm
 @@ -29,2 +29,3 @@
  #include "../../core/Log.h"
-+#include "../../input/MimHidInput.h"
++#include "../../input/MimUsbInput.h"
  #include "../../core/RestartBackoff.h"
 @@ -437,6 +438,9 @@ public:
              std::lock_guard<std::mutex> lock(m_InputMutex);
@@ -15,9 +15,9 @@ index ccefbf5..9aa1811 100644
 -            if (m_Config.tuning.clickTrace) sink->setClickTrace(&m_ClickTrace);
 +            cg->setDisplayRect(rect.left, rect.top, rect.right, rect.bottom);
 +            if (m_Config.tuning.clickTrace) cg->setClickTrace(&m_ClickTrace);
-+            // Physical HID (moonlight-web-mimhid), as on the other platforms.
++            // Physical HID (moonlight-web-mimusb), as on the other platforms.
 +            std::unique_ptr<input::IInputSink> sink =
-+                input::wrapWithMimHid(std::move(cg), m_Config.allowElevatedInput);
++                input::wrapWithMimUsb(std::move(cg), m_Config.allowElevatedInput);
              std::string inputError;
 @@ -1801,3 +1805,3 @@ private:
      std::mutex m_InputMutex;

@@ -1,6 +1,6 @@
 /*
  * MoonlightWeb physical-HID add-on (unofficial).
- * Copyright (C) 2026 the moonlight-web-mimhid contributors
+ * Copyright (C) 2026 the moonlight-web-mimusb contributors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -16,12 +16,12 @@
  * this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "MimHidInput.h"
+#include "MimUsbInput.h"
 
 #include "../core/Log.h"
-#include "MimHidKeymap.h"
+#include "MimUsbKeymap.h"
 
-#include <mimhid.h>
+#include <mimusb.h>
 
 #include <algorithm>
 #include <atomic>
@@ -38,18 +38,18 @@ namespace mw::native::input {
 // Opening a board re-enumerates its USB device on the target, which sees a
 // plug-in: boards are opened once per process (see Registry) so that a keyboard
 // does not vanish and reappear at every stream.
-class MimHidBoard
+class MimUsbBoard
 {
 public:
-    ~MimHidBoard()
+    ~MimUsbBoard()
     {
-        if (m_Device) mimhid_device_close(m_Device, m_ControlTimeoutMs, m_DrainTimeoutMs);
+        if (m_Device) mimusb_device_close(m_Device, m_ControlTimeoutMs, m_DrainTimeoutMs);
     }
 
-    static std::shared_ptr<MimHidBoard> open(const MimHidDevice& d, const std::string& port,
+    static std::shared_ptr<MimUsbBoard> open(const MimUsbDevice& d, const std::string& port,
                                              uint32_t baud, std::string& error)
     {
-        auto board = std::shared_ptr<MimHidBoard>(new MimHidBoard());
+        auto board = std::shared_ptr<MimUsbBoard>(new MimUsbBoard());
         if (!board->openDevice(d, port, baud, error)) return nullptr;
         return board;
     }
@@ -64,56 +64,84 @@ public:
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
         if (!m_Keyboard) return;
-        note(mimhid_keyboard_key(m_Keyboard, usage, down ? 1 : 0));
-        note(mimhid_node_submit(m_Keyboard, m_SendTimeoutMs));
+        note(mimusb_keyboard_key(m_Keyboard, usage, down ? 1 : 0));
+        note(mimusb_node_submit(m_Keyboard, m_SendTimeoutMs));
     }
     void move(int dx, int dy)
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
         if (!m_Mouse) return;
-        note(mimhid_mouse_move(m_Mouse, dx, dy));
-        note(mimhid_node_submit(m_Mouse, m_SendTimeoutMs));
+        note(mimusb_mouse_move(m_Mouse, dx, dy));
+        note(mimusb_node_submit(m_Mouse, m_SendTimeoutMs));
     }
     void button(unsigned hidButton, bool down)
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
         if (!m_Mouse) return;
-        note(mimhid_mouse_button(m_Mouse, hidButton, down ? 1 : 0));
-        note(mimhid_node_submit(m_Mouse, m_SendTimeoutMs));
+        note(mimusb_mouse_button(m_Mouse, hidButton, down ? 1 : 0));
+        note(mimusb_node_submit(m_Mouse, m_SendTimeoutMs));
     }
     void scroll(int wheel, int pan)
     {
         std::lock_guard<std::mutex> lock(m_Mutex);
         if (!m_Mouse) return;
-        note(mimhid_mouse_scroll(m_Mouse, wheel, pan));
-        note(mimhid_node_submit(m_Mouse, m_SendTimeoutMs));
+        note(mimusb_mouse_scroll(m_Mouse, wheel, pan));
+        note(mimusb_node_submit(m_Mouse, m_SendTimeoutMs));
     }
 
 private:
-    MimHidBoard() = default;
+    /// One HID interface: its number, its interrupt IN endpoint and the string of the interface.
+    /// Every value is the configuration's.
+    mimusb_result openNode(mimusb_spec* spec, uint8_t interfaceNumber, uint32_t endpointAddress,
+                           uint32_t maxPacket, uint32_t interval, uint32_t queueDepth, FullPolicy onFull,
+                           const std::string& name, const mimusb_commit_timeouts& timeouts,
+                           mimusb_node** out)
+    {
+        mimusb_placed_endpoint in{};
+        in.role = MIMUSB_ROLE_HID_IN;
+        in.endpoint.address = static_cast<uint8_t>(endpointAddress);
+        in.endpoint.transfer_type = MIMUSB_TRANSFER_INTERRUPT;
+        in.endpoint.interval = static_cast<uint8_t>(interval);
+        in.endpoint.max_packet_size = static_cast<uint16_t>(maxPacket);
+        in.endpoint.policy.depth = static_cast<uint8_t>(queueDepth);
+        switch (onFull) {
+        case FullPolicy::DropNewest: in.endpoint.policy.on_full = MIMUSB_FULL_DROP_NEWEST; break;
+        case FullPolicy::DropOldest: in.endpoint.policy.on_full = MIMUSB_FULL_DROP_OLDEST; break;
+        case FullPolicy::Wait: in.endpoint.policy.on_full = MIMUSB_FULL_WAIT; break;
+        }
+        mimusb_node_placement placement;
+        mimusb_node_placement_init(&placement);
+        placement.first_interface = interfaceNumber;
+        placement.name = name.empty() ? nullptr : name.c_str();
+        placement.endpoints = &in;
+        placement.endpoint_count = 1;
+        return mimusb_node_open(m_Device, spec, &placement, &timeouts, out);
+    }
+
+    MimUsbBoard() = default;
 
     /// Logs the first few failures only: a board unplugged mid-stream would
     /// otherwise write a line per mouse movement.
-    void note(mimhid_result result)
+    void note(mimusb_result result)
     {
-        if (result == MIMHID_OK) {
+        if (result == MIMUSB_OK) {
             m_Consecutive.store(0, std::memory_order_relaxed);
             return;
         }
         m_Consecutive.fetch_add(1, std::memory_order_relaxed);
         const int n = m_Failures.fetch_add(1, std::memory_order_relaxed);
         if (n < 5)
-            log::warning("[mimhid] " + m_Port + ": " + mimhid_result_name(result) + " (" +
-                         mimhid_last_error()->reason + ")");
+            log::warning("[mimusb] " + m_Port + ": " + mimusb_result_name(result) + " (" +
+                         mimusb_last_error()->reason + ")");
     }
 
-    bool fail(const std::string& what, mimhid_result r, std::string& error)
+    bool fail(const std::string& what, mimusb_result r, std::string& error)
     {
-        error = what + ": " + mimhid_result_name(r) + " (" + mimhid_last_error()->reason + ")";
+        error = what + ": " + mimusb_result_name(r) + " (" + mimusb_last_error()->reason + ")";
         return false;
     }
 
-    bool openDevice(const MimHidDevice& d, const std::string& port, uint32_t baud, std::string& error)
+    bool openDevice(const MimUsbDevice& d, const std::string& port, uint32_t baud, std::string& error)
     {
         m_Port = port;
         m_Manufacturer = d.manufacturer;
@@ -125,23 +153,23 @@ private:
         m_DrainTimeoutMs = d.drainTimeoutMs;
         m_SendTimeoutMs = d.sendTimeoutMs;
 
-        // Every value comes from the configuration (libmimhid fills nothing in).
+        // Every value comes from the configuration (libmimusb fills nothing in).
         if (baud == 0) {
             error = "no baud rate for " + port + " (a named port needs one in the configuration)";
             return false;
         }
-        mimhid_device_config config;
-        mimhid_device_config_init(&config);
+        mimusb_device_config config;
+        mimusb_device_config_init(&config);
         config.transport.baud_rate = baud;
         config.transport.handshake_timeout_ms = d.handshakeTimeoutMs;
         config.transport.maximum_report_bytes = d.maxReportBytes;
-        config.transport.linux_hid.descriptor_bytes = d.linuxDescriptorBytes;
-        config.transport.linux_hid.fields_per_report = d.linuxFieldsPerReport;
-        config.transport.linux_hid.global_stack_depth = d.linuxGlobalStackDepth;
-        config.transport.linux_hid.report_size_bits = d.linuxReportSizeBits;
-        config.transport.linux_hid.usages = d.linuxUsages;
-        config.transport.linux_hid.report_data_bits = d.linuxReportDataBits;
-        config.transport.log_level = MIMHID_LOG_DISABLED;
+        config.target.linux_hid.descriptor_bytes = d.linuxDescriptorBytes;
+        config.target.linux_hid.fields_per_report = d.linuxFieldsPerReport;
+        config.target.linux_hid.global_stack_depth = d.linuxGlobalStackDepth;
+        config.target.linux_hid.report_size_bits = d.linuxReportSizeBits;
+        config.target.linux_hid.usages = d.linuxUsages;
+        config.target.linux_hid.report_data_bits = d.linuxReportDataBits;
+        config.transport.log_level = MIMUSB_LOG_DISABLED;
         config.usb_device.bcd_usb = d.bcdUsb;
         config.usb_device.language_id = d.languageId;
         config.usb_device.ep0_max_packet_size = static_cast<uint8_t>(d.ep0MaxPacketSize);
@@ -165,11 +193,11 @@ private:
         // the USB device on the target: it does not vanish between streams.
         config.transport.keep_attached = 1;
 
-        mimhid_result r = mimhid_device_open(port.c_str(), &config, &m_Device);
-        if (r != MIMHID_OK) return fail("open " + port, r, error);
+        mimusb_result r = mimusb_device_open(port.c_str(), &config, &m_Device);
+        if (r != MIMUSB_OK) return fail("open " + port, r, error);
 
-        mimhid_commit_timeouts timeouts;
-        mimhid_commit_timeouts_init(&timeouts);
+        mimusb_commit_timeouts timeouts;
+        mimusb_commit_timeouts_init(&timeouts);
         timeouts.control_timeout_ms = d.controlTimeoutMs;
         timeouts.reconnect_timeout_ms = d.reconnectTimeoutMs;
 
@@ -177,97 +205,79 @@ private:
         // attached (it was killed, or closed with keep_attached); configuring on
         // top of that, the target does not mount the new device in time (6 of 6
         // opens timed out on the test bench; with this, 6 of 6 take 0.4 s).
-        r = mimhid_device_disconnect(m_Device, d.controlTimeoutMs);
-        if (r != MIMHID_OK) return fail("reset " + port, r, error);
+        r = mimusb_device_disconnect(m_Device, d.controlTimeoutMs);
+        if (r != MIMUSB_OK) return fail("reset " + port, r, error);
 
         // Only the classes asked for get an interface: the target sees a
         // keyboard, a mouse, or both, and nothing else.
-        mimhid_spec* keyboardSpec = nullptr;
-        mimhid_spec* mouseSpec = nullptr;
+        mimusb_spec* keyboardSpec = nullptr;
+        mimusb_spec* mouseSpec = nullptr;
         if (d.keyboardEnabled) {
-            mimhid_keyboard_options options;
-            mimhid_keyboard_options_init(&options);
+            mimusb_keyboard_options options;
+            mimusb_keyboard_options_init(&options);
             options.usage_minimum = static_cast<uint16_t>(d.keyboardUsageMinimum);
             options.usage_maximum = static_cast<uint16_t>(d.keyboardUsageMaximum);
-            r = mimhid_spec_create_keyboard(&options, &keyboardSpec);
-            if (r != MIMHID_OK) return fail("keyboard descriptor", r, error);
+            options.function.bcd_hid = d.keyboardBcdHid;
+            options.function.subclass = d.keyboardBoot ? 1 : 0;
+            options.function.protocol = d.keyboardBoot ? 1 : 0;
+            options.function.country_code = static_cast<uint8_t>(d.keyboardCountry);
+            r = mimusb_spec_create_keyboard(&options, &keyboardSpec);
+            if (r != MIMUSB_OK) return fail("keyboard descriptor", r, error);
         }
         if (d.mouseEnabled) {
-            mimhid_mouse_options options;
-            mimhid_mouse_options_init(&options);
+            mimusb_mouse_options options;
+            mimusb_mouse_options_init(&options);
             options.button_count = d.mouseButtons;
-            options.x = mimhid_integer_field_make(d.mouseAxisMinimum, d.mouseAxisMaximum, d.mouseAxisBits);
+            options.x = mimusb_integer_field_make(d.mouseAxisMinimum, d.mouseAxisMaximum, d.mouseAxisBits);
             options.y = options.x;
             options.enable_wheel = d.mouseWheel ? 1 : 0;
-            options.wheel = mimhid_integer_field_make(d.mouseWheelMinimum, d.mouseWheelMaximum,
+            options.wheel = mimusb_integer_field_make(d.mouseWheelMinimum, d.mouseWheelMaximum,
                                                       d.mouseWheelBits);
             options.enable_pan = d.mousePan ? 1 : 0;
             options.pan = options.wheel;
-            r = mimhid_spec_create_mouse(&options, &mouseSpec);
-            if (r != MIMHID_OK) {
-                if (keyboardSpec) mimhid_spec_release(keyboardSpec);
+            options.function.bcd_hid = d.mouseBcdHid;
+            options.function.subclass = d.mouseBoot ? 1 : 0;
+            options.function.protocol = d.mouseBoot ? 2 : 0;
+            r = mimusb_spec_create_mouse(&options, &mouseSpec);
+            if (r != MIMUSB_OK) {
+                if (keyboardSpec) mimusb_spec_release(keyboardSpec);
                 return fail("mouse descriptor", r, error);
             }
         }
 
         // One batch: the board re-enumerates once, not once per interface.
         uint8_t iface = 0;
-        mimhid_device_batch_begin(m_Device);
-        // A HID interface (HID 1.11 4.1: class 0x03); every other value is the configuration's.
+        mimusb_device_batch_begin(m_Device);
         if (keyboardSpec) {
-            mimhid_node_config node;
-            mimhid_node_config_init(&node);
-            node.iface.number = iface++;
-            node.iface.class_code = 0x03;
-            node.iface.bcd_hid = d.keyboardBcdHid;
-            node.ep_in.address = static_cast<uint8_t>(d.keyboardEndpointAddress);
-            node.ep_in.max_packet_size = static_cast<uint16_t>(d.keyboardMaxPacket);
-            node.ep_in.poll_interval_ms = static_cast<uint8_t>(d.keyboardPollMs);
-            if (d.keyboardBoot) {
-                node.iface.subclass = 1;
-                node.iface.protocol = 1;
-            }
-            node.iface.country_code = static_cast<uint8_t>(d.keyboardCountry);
-            if (!m_KeyboardName.empty()) node.iface.name = m_KeyboardName.c_str();
-            r = mimhid_node_open(m_Device, keyboardSpec, &node, &timeouts, &m_Keyboard);
-            mimhid_spec_release(keyboardSpec);
-            if (r != MIMHID_OK) {
-                if (mouseSpec) mimhid_spec_release(mouseSpec);
+            r = openNode(keyboardSpec, iface++, d.keyboardEndpointAddress, d.keyboardMaxPacket,
+                         d.keyboardPollMs, d.keyboardQueueDepth, d.keyboardOnFull, m_KeyboardName,
+                         timeouts, &m_Keyboard);
+            mimusb_spec_release(keyboardSpec);
+            if (r != MIMUSB_OK) {
+                if (mouseSpec) mimusb_spec_release(mouseSpec);
                 return fail("open keyboard", r, error);
             }
         }
         if (mouseSpec) {
-            mimhid_node_config node;
-            mimhid_node_config_init(&node);
-            node.iface.number = iface++;
-            node.iface.class_code = 0x03;
-            node.iface.bcd_hid = d.mouseBcdHid;
-            node.ep_in.address = static_cast<uint8_t>(d.mouseEndpointAddress);
-            node.ep_in.max_packet_size = static_cast<uint16_t>(d.mouseMaxPacket);
-            node.ep_in.poll_interval_ms = static_cast<uint8_t>(d.mousePollMs);
-            if (d.mouseBoot) {
-                node.iface.subclass = 1;
-                node.iface.protocol = 2;
-            }
-            if (!m_MouseName.empty()) node.iface.name = m_MouseName.c_str();
-            r = mimhid_node_open(m_Device, mouseSpec, &node, &timeouts, &m_Mouse);
-            mimhid_spec_release(mouseSpec);
-            if (r != MIMHID_OK) return fail("open mouse", r, error);
+            r = openNode(mouseSpec, iface++, d.mouseEndpointAddress, d.mouseMaxPacket, d.mousePollMs,
+                         d.mouseQueueDepth, d.mouseOnFull, m_MouseName, timeouts, &m_Mouse);
+            mimusb_spec_release(mouseSpec);
+            if (r != MIMUSB_OK) return fail("open mouse", r, error);
         }
-        r = mimhid_device_batch_end(m_Device, &timeouts);
-        if (r != MIMHID_OK) return fail("enumerate", r, error);
-        r = mimhid_device_wait_ready(m_Device, d.readyTimeoutMs);
-        if (r != MIMHID_OK) return fail("wait for the board", r, error);
+        r = mimusb_device_batch_end(m_Device, &timeouts);
+        if (r != MIMUSB_OK) return fail("enumerate", r, error);
+        r = mimusb_device_wait_ready(m_Device, d.readyTimeoutMs);
+        if (r != MIMUSB_OK) return fail("wait for the board", r, error);
 
-        log::info("[mimhid] board ready on " + port + (m_Keyboard ? ", keyboard" : "") +
+        log::info("[mimusb] board ready on " + port + (m_Keyboard ? ", keyboard" : "") +
                   (m_Mouse ? ", mouse" : ""));
         return true;
     }
 
     std::mutex m_Mutex;
-    mimhid_device* m_Device = nullptr;
-    mimhid_node* m_Keyboard = nullptr;
-    mimhid_node* m_Mouse = nullptr;
+    mimusb_device* m_Device = nullptr;
+    mimusb_node* m_Keyboard = nullptr;
+    mimusb_node* m_Mouse = nullptr;
     std::string m_Port;
     std::string m_Manufacturer;
     std::string m_Product;
@@ -288,8 +298,8 @@ namespace {
 /// What a configuration resolved to: who carries the keyboard, who the mouse.
 struct Routing
 {
-    std::shared_ptr<MimHidBoard> keyboard;
-    std::shared_ptr<MimHidBoard> mouse;
+    std::shared_ptr<MimUsbBoard> keyboard;
+    std::shared_ptr<MimUsbBoard> mouse;
     bool jis = false;
     uint32_t mouseButtons = 5;
 };
@@ -300,7 +310,7 @@ public:
     /// The first call opens what it can, at once, and starts the background
     /// retry; later calls return the same registry (the configuration of the
     /// first one stays for the life of the process).
-    static Registry& get(const MimHidConfig& config)
+    static Registry& get(const MimUsbConfig& config)
     {
         static std::atomic<Registry*> instance{nullptr};
         static std::mutex mutex;
@@ -352,14 +362,14 @@ public:
 private:
     struct Slot
     {
-        MimHidDevice cfg;
-        std::shared_ptr<MimHidBoard> board;
+        MimUsbDevice cfg;
+        std::shared_ptr<MimUsbBoard> board;
         std::string lastReport; ///< the last problem logged, so a standing one is logged once
     };
 
-    explicit Registry(const MimHidConfig& config) : m_DiscoverTimeoutMs(config.discoverTimeoutMs)
+    explicit Registry(const MimUsbConfig& config) : m_DiscoverTimeoutMs(config.discoverTimeoutMs)
     {
-        for (const MimHidDevice& d : config.devices)
+        for (const MimUsbDevice& d : config.devices)
             if (d.carriesAnything()) m_Slots.push_back({d, nullptr, {}});
     }
 
@@ -384,7 +394,7 @@ private:
     {
         if (what == s.lastReport) return;
         s.lastReport = what;
-        log::warning("[mimhid] " + what + "; its classes stay on the OS, trying again every 5 s");
+        log::warning("[mimusb] " + what + "; its classes stay on the OS, trying again every 5 s");
     }
 
     /// Ports discovery finds that no entry names and no open board holds. "auto"
@@ -393,16 +403,16 @@ private:
                                                                      uint32_t discoverTimeoutMs)
     {
         std::vector<std::pair<std::string, uint32_t>> spare;
-        mimhid_discovery* found = nullptr;
-        if (mimhid_discover(discoverTimeoutMs, &found) == MIMHID_OK && found) {
-            const size_t n = mimhid_discovery_count(found);
+        mimusb_discovery* found = nullptr;
+        if (mimusb_discover(discoverTimeoutMs, &found) == MIMUSB_OK && found) {
+            const size_t n = mimusb_discovery_count(found);
             for (size_t i = 0; i < n; ++i) {
-                const mimhid_device_info* info = mimhid_discovery_get(found, i);
+                const mimusb_device_info* info = mimusb_discovery_get(found, i);
                 if (info && !excluded.count(info->port_name))
                     spare.emplace_back(info->port_name, info->baud_rate);
             }
         }
-        if (found) mimhid_discovery_destroy(found);
+        if (found) mimusb_discovery_destroy(found);
         return spare;
     }
 
@@ -411,7 +421,7 @@ private:
         // 1. a board that stopped answering is let go (closing it)
         for (Slot& s : m_Slots) {
             if (s.board && s.board->broken()) {
-                log::warning("[mimhid] " + s.board->port() + " stopped answering; reconnecting");
+                log::warning("[mimusb] " + s.board->port() + " stopped answering; reconnecting");
                 s.board.reset();
                 s.lastReport.clear();
             }
@@ -442,7 +452,7 @@ private:
                 spare.erase(spare.begin());
             }
             std::string error;
-            std::shared_ptr<MimHidBoard> board = MimHidBoard::open(s.cfg, port, baud, error);
+            std::shared_ptr<MimUsbBoard> board = MimUsbBoard::open(s.cfg, port, baud, error);
             if (!board) {
                 report(s, port + " unavailable: " + error);
                 continue;
@@ -534,17 +544,17 @@ constexpr uint16_t kLeftShift = 0xE1;
 
 // ── The sink ────────────────────────────────────────────────────────────────
 
-MimHidInput::MimHidInput(std::unique_ptr<IInputSink> osSink, const MimHidConfig& config)
+MimUsbInput::MimUsbInput(std::unique_ptr<IInputSink> osSink, const MimUsbConfig& config)
     : m_Os(std::move(osSink)), m_Config(config)
 {
 }
 
-MimHidInput::~MimHidInput()
+MimUsbInput::~MimUsbInput()
 {
     stop();
 }
 
-bool MimHidInput::start(std::string& error)
+bool MimUsbInput::start(std::string& error)
 {
     if (!m_Os->start(error)) return false;
 
@@ -554,11 +564,11 @@ bool MimHidInput::start(std::string& error)
     m_Generation = ~uint64_t(0); // look at the registry on the first event
     refreshRouting();
     if (!m_Keyboard && !m_Mouse)
-        log::warning("[mimhid] no board is carrying input yet; using the OS input path until one answers");
+        log::warning("[mimusb] no board is carrying input yet; using the OS input path until one answers");
     return true;
 }
 
-void MimHidInput::refreshRouting()
+void MimUsbInput::refreshRouting()
 {
     Registry& registry = Registry::get(m_Config);
     const uint64_t generation = registry.generation();
@@ -583,7 +593,7 @@ void MimHidInput::refreshRouting()
     m_MouseButtonCount = now.mouseButtons;
 }
 
-void MimHidInput::stop()
+void MimUsbInput::stop()
 {
     std::lock_guard<std::mutex> lock(m_Mutex);
     releaseEverything();
@@ -596,7 +606,7 @@ void MimHidInput::stop()
 }
 
 // A physical keyboard has no "session ended mid-keypress"; a viewer's does.
-void MimHidInput::releaseEverything()
+void MimUsbInput::releaseEverything()
 {
     if (m_Keyboard) {
         for (size_t usage = 0; usage < m_KeysDown.size(); ++usage)
@@ -611,7 +621,7 @@ void MimHidInput::releaseEverything()
     m_ButtonsDown = 0;
 }
 
-void MimHidInput::pressUsage(uint16_t usage, bool down, bool resync)
+void MimUsbInput::pressUsage(uint16_t usage, bool down, bool resync)
 {
     if (usage == 0 || usage >= m_KeysDown.size()) return;
     const bool held = m_KeysDown.test(usage);
@@ -623,7 +633,7 @@ void MimHidInput::pressUsage(uint16_t usage, bool down, bool resync)
     m_Keyboard->key(usage, down);
 }
 
-void MimHidInput::injectKey(const InputEvent& event, bool down)
+void MimUsbInput::injectKey(const InputEvent& event, bool down)
 {
     pressUsage(vkToHidUsage(event.keyCode, m_Jis), down, event.resync);
 }
@@ -631,7 +641,7 @@ void MimHidInput::injectKey(const InputEvent& event, bool down)
 // The viewer's layout produced a character; the target's layout is unknown to
 // us, so the character is typed as a US board would — right for the usual
 // case of a US target, honest about being a guess otherwise.
-void MimHidInput::injectChar(const InputEvent& event, bool down)
+void MimUsbInput::injectChar(const InputEvent& event, bool down)
 {
     uint16_t usage = 0;
     bool shift = false;
@@ -654,7 +664,7 @@ void MimHidInput::injectChar(const InputEvent& event, bool down)
     pressUsage(vkToHidUsage(event.keyCode, m_Jis), down, event.resync);
 }
 
-void MimHidInput::injectText(const std::string& text)
+void MimUsbInput::injectText(const std::string& text)
 {
     for (const char c : text) {
         uint16_t usage = 0;
@@ -673,7 +683,7 @@ void MimHidInput::injectText(const std::string& text)
 // the previous one; the first only sets the baseline. The target's pointer
 // acceleration applies to it, so absolute aiming through the board is
 // approximate by nature.
-void MimHidInput::injectMouseAbsolute(const InputEvent& event)
+void MimUsbInput::injectMouseAbsolute(const InputEvent& event)
 {
     if (!m_HaveAbsolute) {
         m_HaveAbsolute = true;
@@ -686,7 +696,7 @@ void MimHidInput::injectMouseAbsolute(const InputEvent& event)
     m_LastAbsY = event.positionY;
 }
 
-void MimHidInput::injectScroll(int amount, bool horizontal)
+void MimUsbInput::injectScroll(int amount, bool horizontal)
 {
     int& remainder = horizontal ? m_PanRemainder : m_WheelRemainder;
     remainder += amount;
@@ -699,7 +709,7 @@ void MimHidInput::injectScroll(int amount, bool horizontal)
         m_Mouse->scroll(notches, 0);
 }
 
-void MimHidInput::inject(const InputEvent& event)
+void MimUsbInput::inject(const InputEvent& event)
 {
     const bool keyboard = isKeyboardEvent(event.type);
     const bool mouse = isMouseEvent(event.type);
@@ -739,31 +749,31 @@ void MimHidInput::inject(const InputEvent& event)
     m_Os->inject(event);
 }
 
-void MimHidInput::setDisplayRect(int l, int t, int r, int b) { m_Os->setDisplayRect(l, t, r, b); }
-void MimHidInput::setDesktopRect(int l, int t, int r, int b) { m_Os->setDesktopRect(l, t, r, b); }
+void MimUsbInput::setDisplayRect(int l, int t, int r, int b) { m_Os->setDisplayRect(l, t, r, b); }
+void MimUsbInput::setDesktopRect(int l, int t, int r, int b) { m_Os->setDesktopRect(l, t, r, b); }
 
-void MimHidInput::setAllowElevated(bool allow)
+void MimUsbInput::setAllowElevated(bool allow)
 {
     m_AllowElevated = allow;
     m_Os->setAllowElevated(allow);
 }
 
-void MimHidInput::setGateCallback(InputGateCallback callback)
+void MimUsbInput::setGateCallback(InputGateCallback callback)
 {
     m_Os->setGateCallback(std::move(callback));
 }
 
-bool MimHidInput::releaseBlock() { return m_Os->releaseBlock(); }
-bool MimHidInput::showsPointer() { return m_Os->showsPointer(); }
+bool MimUsbInput::releaseBlock() { return m_Os->releaseBlock(); }
+bool MimUsbInput::showsPointer() { return m_Os->showsPointer(); }
 
-std::unique_ptr<IInputSink> wrapWithMimHid(std::unique_ptr<IInputSink> osSink, bool allowElevated)
+std::unique_ptr<IInputSink> wrapWithMimUsb(std::unique_ptr<IInputSink> osSink, bool allowElevated)
 {
     std::string error;
-    const MimHidConfig config = loadMimHidConfig(error);
-    if (!error.empty()) log::warning("[mimhid] configuration ignored: " + error);
+    const MimUsbConfig config = loadMimUsbConfig(error);
+    if (!error.empty()) log::warning("[mimusb] configuration ignored: " + error);
     if (!config.active()) return osSink;
 
-    auto wrapped = std::make_unique<MimHidInput>(std::move(osSink), config);
+    auto wrapped = std::make_unique<MimUsbInput>(std::move(osSink), config);
     wrapped->setAllowElevated(allowElevated);
     return wrapped;
 }

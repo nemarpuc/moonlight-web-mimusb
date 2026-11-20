@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 the moonlight-web-mimhid contributors
+# Copyright (C) 2026 the moonlight-web-mimusb contributors
 #
 # The installer: one program per system that puts the add-on build from the
 # release's bin/ folder in place of the official MoonlightWeb. Dear ImGui and

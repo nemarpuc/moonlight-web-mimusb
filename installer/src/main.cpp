@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 the moonlight-web-mimhid contributors
+// Copyright (C) 2026 the moonlight-web-mimusb contributors
 //
 // The installer: a window (or, with an argument, a command line) that puts the
 // add-on build from bin/ in place of the official MoonlightWeb, and back.
@@ -99,7 +99,7 @@ void draw_device_card(mwi::App& app) {
     ui::field("Serial number (may be empty)", "##serial", app.fields.serial);
 
     ImGui::Spacing();
-    if (ui::primary_button("Save mimhid.json"))
+    if (ui::primary_button("Save mimusb.json"))
         mwi::save_config(app);
     ImGui::SameLine();
     if (ui::button("Discard changes"))
@@ -107,7 +107,7 @@ void draw_device_card(mwi::App& app) {
     if (!app.config_note.empty())
         ui::dim(app.config_note.c_str());
     ui::dim(app.config_exists ? "Only these keys change; the rest of the file stays as it is."
-                              : "No mimhid.json yet: saving makes one from the example.");
+                              : "No mimusb.json yet: saving makes one from the example.");
     ImGui::TextDisabled("%s", mwi::utf8(app.config_path).c_str());
     ui::card_end();
 }
@@ -155,9 +155,9 @@ void draw_window(mwi::App& app, GLFWwindow* const window) {
 
     ImGui::PushStyleColor(ImGuiCol_Text, ui::color::accent);
     ImGui::SetWindowFontScale(1.0F);
-    ImGui::TextUnformatted("moonlight-web-mimhid");
+    ImGui::TextUnformatted("moonlight-web-mimusb");
     ImGui::PopStyleColor();
-    ui::dim("Keyboard and mouse of a Moonlight-Web session, through a libmimhid board.");
+    ui::dim("Keyboard and mouse of a Moonlight-Web session, through a libmimusb board.");
     ImGui::Spacing();
 
     draw_install_card(app, state, busy);
@@ -216,7 +216,7 @@ int main(const int argc, char** const argv) {
 #endif
     glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    GLFWwindow* window = glfwCreateWindow(560, 880, "moonlight-web-mimhid installer", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(560, 880, "moonlight-web-mimusb installer", nullptr, nullptr);
     if (window == nullptr) {
         glfwTerminate();
         return 1;

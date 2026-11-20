@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 the moonlight-web-mimhid contributors
+# Copyright (C) 2026 the moonlight-web-mimusb contributors
 <#
 Build the add-on for Windows from a tree tools/prepare.py made.
 
@@ -32,7 +32,7 @@ if (-not $env:VSINSTALLDIR) {
 $build = Join-Path $Work 'build'
 cmake -S (Join-Path $info.source 'backend') -B $build -G Ninja -DCMAKE_BUILD_TYPE=Release `
     "-DCMAKE_PREFIX_PATH=$QtDir" "-DMW_VERSION=$($info.version)" `
-    -DMW_MIMHID=ON "-DMW_MIMHID_DIR=$($info.libmimhid)"
+    -DMW_MIMUSB=ON "-DMW_MIMUSB_DIR=$($info.libmimusb)"
 if ($LASTEXITCODE -ne 0) { throw 'configure failed' }
 cmake --build $build --target mw-server -j $Jobs
 if ($LASTEXITCODE -ne 0) { throw 'build failed' }

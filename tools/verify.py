@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 the moonlight-web-mimhid contributors
+# Copyright (C) 2026 the moonlight-web-mimusb contributors
 """Gate before a release: is this build one the official entry page will open?
 
     python tools/verify.py work [--wait-minutes 60]
@@ -32,7 +32,7 @@ ENTRY = "https://stream.moonlightweb.top"
 def list_published(version):
     url = f"{ENTRY}/v1/interfaces/{version}.json"
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "moonlight-web-mimhid"}), timeout=30) as r:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "moonlight-web-mimusb"}), timeout=30) as r:
             body = json.load(r)
         return body.get("version") == version and bool(body.get("files"))
     except urllib.error.HTTPError as e:

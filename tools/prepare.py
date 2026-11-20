@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 the moonlight-web-mimhid contributors
+# Copyright (C) 2026 the moonlight-web-mimusb contributors
 """Prepare a build tree: upstream at a tag, plus this add-on.
 
 Used by the workflow and by hand, so both take the same road:
@@ -10,14 +10,14 @@ Used by the workflow and by hand, so both take the same road:
 1. clone upstream at the tag, with submodules;
 2. copy overlay/ over it;
 3. append one include line to backend/native-host/CMakeLists.txt (the CMake
-   side of the add-on lives in overlay/.../cmake/MimHid.cmake, so upstream's file
+   side of the add-on lives in overlay/.../cmake/MimUsb.cmake, so upstream's file
    needs no patch hunk that could stop applying);
 4. point the update check at THIS repository's releases (one string in
    backend/src/network/UpdateChecker.cpp), so a user is told about a new version
    only when this add-on has built it; see redirect_update_source;
 5. apply patches/ in order (a patch that does not apply stops everything and
    says where each hunk's first line moved, or that it is gone);
-6. clone libmimhid at its newest release tag (or the one given with --libmimhid-tag);
+6. clone libmimusb at its newest release tag (or the one given with --libmimusb-tag);
 7. write work/BUILD_INFO.json with what was used.
 
 `--tag latest` asks GitHub for upstream's newest v* release tag. `--ref <branch>`
@@ -35,8 +35,8 @@ import urllib.request
 
 UPSTREAM = "https://github.com/linckosz/moonlight-web.git"
 UPSTREAM_API = "https://api.github.com/repos/linckosz/moonlight-web/tags?per_page=100"
-LIBMIMHID = "https://github.com/nemarpuc/libmimhid.git"
-LIBMIMHID_API = "https://api.github.com/repos/nemarpuc/libmimhid/releases/latest"
+LIBMIMUSB = "https://github.com/nemarpuc/libmimusb.git"
+LIBMIMUSB_API = "https://api.github.com/repos/nemarpuc/libmimusb/releases/latest"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -54,7 +54,7 @@ def release_tag_key(tag):
 
 def latest_upstream_tag():
     """Newest vX.Y.Z tag (the 'srv-' tags are the website's, not releases)."""
-    req = urllib.request.Request(UPSTREAM_API, headers={"User-Agent": "moonlight-web-mimhid"})
+    req = urllib.request.Request(UPSTREAM_API, headers={"User-Agent": "moonlight-web-mimusb"})
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
@@ -66,24 +66,24 @@ def latest_upstream_tag():
     return max(keyed)[1]
 
 
-def latest_libmimhid_tag():
-    """Tag of libmimhid's newest published release (the one that carries firmware images).
+def latest_libmimusb_tag():
+    """Tag of libmimusb's newest published release (the one that carries firmware images).
 
     Nothing is guessed: if GitHub cannot say, the build stops.
     """
-    req = urllib.request.Request(LIBMIMHID_API, headers={"User-Agent": "moonlight-web-mimhid"})
+    req = urllib.request.Request(LIBMIMUSB_API, headers={"User-Agent": "moonlight-web-mimusb"})
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(req, timeout=60) as r:
         tag = json.load(r).get("tag_name", "")
     if not release_tag_key(tag):
-        sys.exit(f"libmimhid's newest release has the tag {tag!r}, which is not vX.Y.Z")
+        sys.exit(f"libmimusb's newest release has the tag {tag!r}, which is not vX.Y.Z")
     return tag
 
 
 CMAKE_FILE = os.path.join("backend", "native-host", "CMakeLists.txt")
-CMAKE_INCLUDE = 'include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MimHid.cmake")'
+CMAKE_INCLUDE = 'include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MimUsb.cmake")'
 
 
 def append_cmake_include(src):
@@ -91,10 +91,10 @@ def append_cmake_include(src):
     with open(path, newline="", encoding="utf-8") as f:
         text = f.read()
     if "add_library(mw-native-host" not in text:
-        sys.exit(f"{CMAKE_FILE}: no 'add_library(mw-native-host' any more; MimHid.cmake needs that target")
+        sys.exit(f"{CMAKE_FILE}: no 'add_library(mw-native-host' any more; MimUsb.cmake needs that target")
     nl = "\r\n" if "\r\n" in text else "\n"
     with open(path, "w", newline="", encoding="utf-8") as f:
-        f.write(text.rstrip("\r\n") + nl + nl + "# moonlight-web-mimhid add-on" + nl + CMAKE_INCLUDE + nl)
+        f.write(text.rstrip("\r\n") + nl + nl + "# moonlight-web-mimusb add-on" + nl + CMAKE_INCLUDE + nl)
     print("appended to", CMAKE_FILE.replace(os.sep, "/"))
 
 
@@ -165,18 +165,18 @@ def main():
     ap.add_argument("--addon-repo", default=os.environ.get("GITHUB_REPOSITORY", ""),
                     help="owner/name whose releases the built-in update check reads "
                          "(default: $GITHUB_REPOSITORY; empty keeps upstream's)")
-    ap.add_argument("--libmimhid-tag", default="latest",
-                    help="libmimhid release tag, e.g. v0.2.0, or 'latest' (its newest release)")
+    ap.add_argument("--libmimusb-tag", default="latest",
+                    help="libmimusb release tag, e.g. v0.2.0, or 'latest' (its newest release)")
     ap.add_argument("--print-latest", action="store_true", help="print upstream's newest tag and exit")
-    ap.add_argument("--print-libmimhid-latest", action="store_true",
-                    help="print libmimhid's newest release tag and exit")
+    ap.add_argument("--print-libmimusb-latest", action="store_true",
+                    help="print libmimusb's newest release tag and exit")
     args = ap.parse_args()
 
     if args.print_latest:
         print(latest_upstream_tag())
         return
-    if args.print_libmimhid_latest:
-        print(latest_libmimhid_tag())
+    if args.print_libmimusb_latest:
+        print(latest_libmimusb_tag())
         return
 
     tag = args.ref or (latest_upstream_tag() if args.tag == "latest" else args.tag)
@@ -222,16 +222,16 @@ def main():
             explain_failed_patch(src, full)
             sys.exit(1)
 
-    # 6. libmimhid: its newest release unless a tag was named. The host library and the
+    # 6. libmimusb: its newest release unless a tag was named. The host library and the
     #    board's firmware must be the same version, so the tag is recorded and shown.
-    libmimhid_tag = latest_libmimhid_tag() if args.libmimhid_tag == "latest" else args.libmimhid_tag
-    if not release_tag_key(libmimhid_tag):
-        sys.exit(f"{libmimhid_tag!r} is not a libmimhid release tag (vX.Y.Z)")
-    lib = os.path.join(out, "libmimhid")
-    run(["git", "clone", "--branch", libmimhid_tag, "--depth", "1", LIBMIMHID, lib])
+    libmimusb_tag = latest_libmimusb_tag() if args.libmimusb_tag == "latest" else args.libmimusb_tag
+    if not release_tag_key(libmimusb_tag):
+        sys.exit(f"{libmimusb_tag!r} is not a libmimusb release tag (vX.Y.Z)")
+    lib = os.path.join(out, "libmimusb")
+    run(["git", "clone", "--branch", libmimusb_tag, "--depth", "1", LIBMIMUSB, lib])
 
-    info = {"upstream_tag": tag, "version": tag.lstrip("v"), "libmimhid_tag": libmimhid_tag,
-            "source": src, "libmimhid": lib}
+    info = {"upstream_tag": tag, "version": tag.lstrip("v"), "libmimusb_tag": libmimusb_tag,
+            "source": src, "libmimusb": lib}
     with open(os.path.join(out, "BUILD_INFO.json"), "w", encoding="utf-8") as f:
         json.dump(info, f, indent=2)
     print(json.dumps(info, indent=2))

@@ -4,10 +4,10 @@ index 68a55d2..d427bbc 100644
 +++ b/backend/native-host/src/platform/linux/LinuxSession.cpp
 @@ -41,2 +41,3 @@
  #include "../../core/Log.h"
-+#include "../../input/MimHidInput.h"
++#include "../../input/MimUsbInput.h"
  #include "../../core/RestartBackoff.h"
 @@ -717,2 +718,4 @@ public:
              }
-+            // Physical HID (moonlight-web-mimhid), as on the other platforms.
-+            sink = input::wrapWithMimHid(std::move(sink), m_Config.allowElevatedInput);
++            // Physical HID (moonlight-web-mimusb), as on the other platforms.
++            sink = input::wrapWithMimUsb(std::move(sink), m_Config.allowElevatedInput);
              std::string inputError;

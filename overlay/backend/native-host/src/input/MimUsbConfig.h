@@ -1,6 +1,6 @@
 /*
  * MoonlightWeb physical-HID add-on (unofficial).
- * Copyright (C) 2026 the moonlight-web-mimhid contributors
+ * Copyright (C) 2026 the moonlight-web-mimusb contributors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -24,21 +24,24 @@
 
 namespace mw::native::input {
 
-/// One libmimhid board on one serial port, and what it presents to its target.
+/// One libmimusb board on one serial port, and what it presents to its target.
 ///
 /// A board with both classes enabled is one composite USB device with an
 /// interface per class. A class left disabled is not presented, and the viewer's
 /// events of that class stay on the OS path.
 ///
 /// Nothing here has a default: every value comes from the configuration file, and
-/// parseMimHidConfig refuses a file that leaves one out, naming the key. (libmimhid
+/// parseMimUsbConfig refuses a file that leaves one out, naming the key. (libmimusb
 /// fills nothing in either.)
-struct MimHidDevice
+/// What the board does with a report when its queue for an endpoint is full (libmimusb's MIMUSB_FULL_*).
+enum class FullPolicy { DropNewest, DropOldest, Wait };
+
+struct MimUsbDevice
 {
     std::string port;  ///< "auto", or "COM5" / "/dev/ttyACM0"
     uint32_t baud = 0; ///< a rate in baud, or 0 for "auto" ports: the fastest rate discovery found
 
-    // The link to the board (libmimhid takes every timeout as an argument).
+    // The link to the board (libmimusb takes every timeout as an argument).
     uint32_t handshakeTimeoutMs = 0;
     uint32_t controlTimeoutMs = 0;
     uint32_t reconnectTimeoutMs = 0;
@@ -46,7 +49,7 @@ struct MimHidDevice
     uint32_t drainTimeoutMs = 0; ///< closing: how long the neutral reports may take
     uint32_t readyTimeoutMs = 0; ///< how long the target may take to mount the device
     uint32_t maxReportBytes = 0; ///< the longest report this add-on sends
-    // The Linux HID parser limits libmimhid checks a descriptor against (docs/LIMITS.md there).
+    // The Linux HID parser limits libmimusb checks a descriptor against (docs/LIMITS.md there).
     uint32_t linuxDescriptorBytes = 0;
     uint32_t linuxFieldsPerReport = 0;
     uint32_t linuxGlobalStackDepth = 0;
@@ -71,7 +74,9 @@ struct MimHidDevice
     bool keyboardEnabled = false;
     bool keyboardJis = false;    ///< the target uses a JIS layout
     bool keyboardBoot = false;   ///< boot-protocol keyboard (BIOS, bootloaders)
-    uint32_t keyboardPollMs = 0; ///< 1 to 255
+    uint32_t keyboardPollMs = 0; ///< bInterval of the IN endpoint, 1 to 255 (frames at full speed)
+    uint32_t keyboardQueueDepth = 0; ///< reports that may wait on the IN endpoint, 1 to 255
+    FullPolicy keyboardOnFull = FullPolicy::DropNewest;
     std::string keyboardName;    ///< interface string, empty for none
     int keyboardCountry = 0;     ///< HID country code 0-35
     uint16_t keyboardBcdHid = 0;
@@ -85,7 +90,9 @@ struct MimHidDevice
     uint32_t mouseButtons = 0;
     bool mouseWheel = false;
     bool mousePan = false;
-    uint32_t mousePollMs = 0; ///< 1 to 255
+    uint32_t mousePollMs = 0; ///< bInterval of the IN endpoint, 1 to 255 (frames at full speed)
+    uint32_t mouseQueueDepth = 0; ///< reports that may wait on the IN endpoint, 1 to 255
+    FullPolicy mouseOnFull = FullPolicy::DropNewest;
     std::string mouseName;
     uint16_t mouseBcdHid = 0;
     uint32_t mouseEndpointAddress = 0; ///< IN endpoint, 0x81 to 0x8F
@@ -100,17 +107,17 @@ struct MimHidDevice
     bool carriesAnything() const { return keyboardEnabled || mouseEnabled; }
 };
 
-struct MimHidConfig
+struct MimUsbConfig
 {
     bool enabled = false;
     uint32_t discoverTimeoutMs = 0; ///< how long a search for boards waits for each port's answer
-    std::vector<MimHidDevice> devices;
+    std::vector<MimUsbDevice> devices;
 
     /// Whether anything is routed to a board.
     bool active() const
     {
         if (!enabled) return false;
-        for (const MimHidDevice& d : devices)
+        for (const MimUsbDevice& d : devices)
             if (d.carriesAnything()) return true;
         return false;
     }
@@ -126,14 +133,14 @@ struct MimHidConfig
 /// Otherwise every value is required (no key has a default): returns false, naming
 /// the key (for example "devices[0].usb.vid"), when one is missing or out of range,
 /// and when the text is not JSON of the expected shape.
-bool parseMimHidConfig(const std::string& json, MimHidConfig& out, std::string& error);
+bool parseMimUsbConfig(const std::string& json, MimUsbConfig& out, std::string& error);
 
-/// $MW_MIMHID_CONFIG if set, otherwise mimhid.json beside upstream's
+/// $MW_MIMUSB_CONFIG if set, otherwise mimusb.json beside upstream's
 /// settings.json. Empty when no such place can be worked out.
-std::string mimHidConfigPath();
+std::string mimUsbConfigPath();
 
-/// Loads the file at mimHidConfigPath(). A missing file is not an error: it
-/// returns a config with enabled == false, as does MW_MIMHID_DISABLE=1.
-MimHidConfig loadMimHidConfig(std::string& error);
+/// Loads the file at mimUsbConfigPath(). A missing file is not an error: it
+/// returns a config with enabled == false, as does MW_MIMUSB_DISABLE=1.
+MimUsbConfig loadMimUsbConfig(std::string& error);
 
 } // namespace mw::native::input

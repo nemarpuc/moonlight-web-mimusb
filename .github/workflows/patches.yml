@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 the moonlight-web-mimhid contributors
+# Copyright (C) 2026 the moonlight-web-mimusb contributors
 name: Patches
 
 # Does the add-on still apply? Runs on every push and daily, against upstream's
@@ -44,19 +44,19 @@ jobs:
           fi
       - name: License bundle
         run: python tools/licenses.py work /tmp/lic && cat /tmp/lic/SOURCE.txt
-      - name: The libmimhid backend compiles against upstream and libmimhid (syntax only)
+      - name: The libmimusb backend compiles against upstream and libmimusb (syntax only)
         shell: bash
         run: |
-          g++ -std=c++17 -fsyntax-only -Wall -Wextra -DMOONLIGHTWEB_MIMHID \
+          g++ -std=c++17 -fsyntax-only -Wall -Wextra -DMOONLIGHTWEB_MIMUSB \
             -I work/moonlight-web/backend/native-host/src \
             -I work/moonlight-web/backend/native-host/include \
-            -I work/libmimhid/include \
-            work/moonlight-web/backend/native-host/src/input/MimHidInput.cpp
+            -I work/libmimusb/include \
+            work/moonlight-web/backend/native-host/src/input/MimUsbInput.cpp
       - name: Config parser test
         shell: bash
         run: |
           c++ -std=c++17 -Wall -Wextra -Ioverlay/backend/native-host/src/input \
-            tests/test_config.cpp overlay/backend/native-host/src/input/MimHidConfig.cpp -o /tmp/tc
+            tests/test_config.cpp overlay/backend/native-host/src/input/MimUsbConfig.cpp -o /tmp/tc
           /tmp/tc
       - name: Packaging scripts compile
         if: matrix.target == 'release'

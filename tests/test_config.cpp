@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 the moonlight-web-mimhid contributors
+// Copyright (C) 2026 the moonlight-web-mimusb contributors
 // Config parser test: builds with any C++17 compiler, no framework.
 //   c++ -std=c++17 -Ioverlay/backend/native-host/src/input tests/test_config.cpp
-//       overlay/backend/native-host/src/input/MimHidConfig.cpp && ./a.out  (one command line)
-#include "MimHidConfig.h"
-#include "MimHidKeymap.h"
+//       overlay/backend/native-host/src/input/MimUsbConfig.cpp && ./a.out  (one command line)
+#include "MimUsbConfig.h"
+#include "MimUsbKeymap.h"
 
 #include <cstdio>
 #include <fstream>
@@ -22,11 +22,11 @@ static int g_failed = 0;
         }                                                                             \
     } while (0)
 
-static MimHidConfig parse(const std::string& json, bool expectOk = true)
+static MimUsbConfig parse(const std::string& json, bool expectOk = true)
 {
-    MimHidConfig c;
+    MimUsbConfig c;
     std::string error;
-    const bool ok = parseMimHidConfig(json, c, error);
+    const bool ok = parseMimUsbConfig(json, c, error);
     CHECK(ok == expectOk);
     return c;
 }
@@ -34,11 +34,11 @@ static MimHidConfig parse(const std::string& json, bool expectOk = true)
 // The shipped example must always parse (run from the repository root).
 static void checkExampleFile()
 {
-    std::ifstream in("mimhid.example.json");
+    std::ifstream in("mimusb.example.json");
     CHECK(in.good());
     std::stringstream ss;
     ss << in.rdbuf();
-    MimHidConfig c = parse(ss.str());
+    MimUsbConfig c = parse(ss.str());
     CHECK(c.enabled);
     CHECK(c.devices.size() == 1);
     CHECK(c.devices[0].keyboardEnabled && c.devices[0].mouseEnabled && c.devices[0].baud == 0);
@@ -57,10 +57,10 @@ static const char* const kUsb = R"("usb": {
     "ep0_max_packet_size": 64, "configuration_value": 1, "remote_wakeup": true,
     "self_powered": false, "max_power_ma": 200})";
 static const char* const kKeyboard = R"("keyboard": {
-    "layout": "jis", "boot": false, "poll_ms": 1, "name": "", "country": 15, "bcd_hid": "0x0111",
+    "layout": "jis", "boot": false, "poll_ms": 1, "queue_depth": 7, "on_full": "drop_newest", "name": "", "country": 15, "bcd_hid": "0x0111",
     "endpoint_address": "0x81", "max_packet": 64, "usage_minimum": 4, "usage_maximum": 221})";
 static const char* const kMouse = R"("mouse": {
-    "buttons": 3, "wheel": true, "pan": false, "boot": false, "poll_ms": 1, "name": "",
+    "buttons": 3, "wheel": true, "pan": false, "boot": false, "poll_ms": 1, "queue_depth": 7, "on_full": "drop_newest", "name": "",
     "bcd_hid": "0x0111", "endpoint_address": "0x82", "max_packet": 64,
     "axis_minimum": -32767, "axis_maximum": 32767, "axis_bits": 16,
     "wheel_minimum": -127, "wheel_maximum": 127, "wheel_bits": 8})";
@@ -77,9 +77,9 @@ static std::string whole(const std::string& port, const std::string& classes)
 /// The error text of a file that must be refused.
 static std::string refused(const std::string& json)
 {
-    MimHidConfig c;
+    MimUsbConfig c;
     std::string error;
-    CHECK(!parseMimHidConfig(json, c, error));
+    CHECK(!parseMimUsbConfig(json, c, error));
     return error;
 }
 
@@ -93,10 +93,10 @@ int main()
     checkExampleFile();
     // One board at the top level, both classes.
     {
-        MimHidConfig c = parse(whole("COM5", std::string(kKeyboard) + ", " + kMouse));
+        MimUsbConfig c = parse(whole("COM5", std::string(kKeyboard) + ", " + kMouse));
         CHECK(c.enabled && c.discoverTimeoutMs == 50);
         CHECK(c.devices.size() == 1);
-        const MimHidDevice& d = c.devices[0];
+        const MimUsbDevice& d = c.devices[0];
         CHECK(d.port == "COM5" && d.baud == 921600);
         CHECK(d.handshakeTimeoutMs == 50 && d.controlTimeoutMs == 500 && d.reconnectTimeoutMs == 3000);
         CHECK(d.sendTimeoutMs == 100);
@@ -113,7 +113,7 @@ int main()
 
     // Two boards: keyboard on one, mouse on the other.
     {
-        MimHidConfig c = parse("{\"enabled\": true, \"discover_timeout_ms\": 50, \"devices\": [{" +
+        MimUsbConfig c = parse("{\"enabled\": true, \"discover_timeout_ms\": 50, \"devices\": [{" +
                                device("auto", kKeyboard).replace(device("auto", kKeyboard).find("921600"), 6, "0") +
                                "}, {" + device("/dev/ttyACM1", std::string("\"mouse\": {\"enabled\": true, ") +
                                                                  (std::string(kMouse).substr(std::string("\"mouse\": {").size()))) +
@@ -126,14 +126,14 @@ int main()
 
     // A class that is not mentioned is not presented; "enabled": false switches one off.
     {
-        MimHidConfig c = parse(whole("COM5", R"("keyboard": {"enabled": false})"));
+        MimUsbConfig c = parse(whole("COM5", R"("keyboard": {"enabled": false})"));
         CHECK(!c.devices[0].keyboardEnabled && !c.devices[0].mouseEnabled);
         CHECK(!c.active());
     }
 
     // Off unless asked for, and then nothing else is read.
     {
-        MimHidConfig c = parse(R"({"enabled": false, "keyboard": {}})");
+        MimUsbConfig c = parse(R"({"enabled": false, "keyboard": {}})");
         CHECK(!c.enabled && !c.active());
     }
     refused(R"({"keyboard": {}})"); // "enabled" itself is required
@@ -171,6 +171,9 @@ int main()
         std::string bad = whole("COM5", kKeyboard);
         bad.replace(bad.find("\"poll_ms\": 1"), 12, "\"poll_ms\": 999");
         CHECK(contains(refused(bad), "keyboard.poll_ms"));
+        std::string badFull = whole("COM5", kKeyboard);
+        badFull.replace(badFull.find("\"drop_newest\""), 13, "\"sometimes\"");
+        CHECK(contains(refused(badFull), "keyboard.on_full"));
         std::string zero = whole("COM5", kKeyboard);
         zero.replace(zero.find("921600"), 6, "0");
         CHECK(contains(refused(zero), "baud"));

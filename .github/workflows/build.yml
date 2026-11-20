@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 the moonlight-web-mimhid contributors
+# Copyright (C) 2026 the moonlight-web-mimusb contributors
 name: Build
 
 # Daily: if upstream has a newer release tag than this repo has released, or
-# libmimhid has a newer release than the one the newest release here was built
+# libmimusb has a newer release than the one the newest release here was built
 # with, build with the add-on for Windows, Linux and macOS and publish the result.
 # Also runnable by hand for a tag.
 #
-# The release carries upstream's tag. libmimhid is always its newest release; the
-# version is written into the release notes ("libmimhid: vX.Y.Z"), which is also how
+# The release carries upstream's tag. libmimusb is always its newest release; the
+# version is written into the release notes ("libmimusb: vX.Y.Z"), which is also how
 # the next run knows what the release was built with. When it changes, the notes
 # tell the user to flash the board with that version's firmware.
 #
@@ -46,8 +46,8 @@ jobs:
       version: ${{ steps.pick.outputs.version }}
       needed: ${{ steps.pick.outputs.needed }}
       qt: ${{ steps.pick.outputs.qt }}
-      libmimhid: ${{ steps.pick.outputs.libmimhid }}
-      previous_libmimhid: ${{ steps.pick.outputs.previous_libmimhid }}
+      libmimusb: ${{ steps.pick.outputs.libmimusb }}
+      previous_libmimusb: ${{ steps.pick.outputs.previous_libmimusb }}
       latest: ${{ steps.pick.outputs.latest }}
       installer: ${{ steps.pick.outputs.installer }}
     steps:
@@ -72,11 +72,11 @@ jobs:
           # Is this the newest upstream release (then it becomes this repo's "Latest")?
           newest="$(python tools/prepare.py --print-latest)"
           if [ "$tag" = "$newest" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
-          # libmimhid's newest release, and the one an existing release here was built with.
-          lib="$(python tools/prepare.py --print-libmimhid-latest)"
-          echo "libmimhid=$lib" >> "$GITHUB_OUTPUT"
-          prev="$(gh release view "$tag" --json body --jq .body 2>/dev/null | tr -d '\r' | sed -n 's/^libmimhid: *\(v[0-9][0-9.]*\).*/\1/p' | head -n1 || true)"
-          echo "previous_libmimhid=$prev" >> "$GITHUB_OUTPUT"
+          # libmimusb's newest release, and the one an existing release here was built with.
+          lib="$(python tools/prepare.py --print-libmimusb-latest)"
+          echo "libmimusb=$lib" >> "$GITHUB_OUTPUT"
+          prev="$(gh release view "$tag" --json body --jq .body 2>/dev/null | tr -d '\r' | sed -n 's/^libmimusb: *\(v[0-9][0-9.]*\).*/\1/p' | head -n1 || true)"
+          echo "previous_libmimusb=$prev" >> "$GITHUB_OUTPUT"
           # The installer lives in this repository, not upstream: its tree id is written into
           # the notes too, so a change to it rebuilds (and re-uploads) the newest release.
           inst="$(git rev-parse HEAD:installer)"
@@ -95,7 +95,7 @@ jobs:
              printf '%s\n' "$assets" | grep -q 'linux-x86_64\.tar\.gz$' &&
              printf '%s\n' "$assets" | grep -q 'macos-arm64.zip$'; then complete=true; fi
           if [ "${FORCE:-false}" != "true" ] && [ "$complete" = true ] && [ "$prev" = "$lib" ] && [ "$prev_inst" = "$inst" ]; then
-            echo "$tag is already released here, complete, built with libmimhid $lib and installer $inst"
+            echo "$tag is already released here, complete, built with libmimusb $lib and installer $inst"
             echo "needed=false" >> "$GITHUB_OUTPUT"
           else
             echo "needed=true" >> "$GITHUB_OUTPUT"
@@ -109,7 +109,7 @@ jobs:
       ready: ${{ steps.verify.outputs.ready }}
     env:
       TAG: ${{ needs.decide.outputs.tag }}
-      LIBMIMHID: ${{ needs.decide.outputs.libmimhid }}
+      LIBMIMUSB: ${{ needs.decide.outputs.libmimusb }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -123,7 +123,7 @@ jobs:
       # fails this step, which is the signal that upstream moved.
       - name: Prepare
         shell: bash
-        run: python tools/prepare.py --tag "$TAG" --libmimhid-tag "$LIBMIMHID" --out work
+        run: python tools/prepare.py --tag "$TAG" --libmimusb-tag "$LIBMIMUSB" --out work
 
       # Is this a build the official entry page will open? If upstream has not
       # published that release's list yet, stop without failing.
@@ -192,7 +192,7 @@ jobs:
     env:
       TAG: ${{ needs.decide.outputs.tag }}
       VERSION: ${{ needs.decide.outputs.version }}
-      LIBMIMHID: ${{ needs.decide.outputs.libmimhid }}
+      LIBMIMUSB: ${{ needs.decide.outputs.libmimusb }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -201,7 +201,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: python tools/prepare.py --tag "$TAG" --libmimhid-tag "$LIBMIMHID" --out work
+      - run: python tools/prepare.py --tag "$TAG" --libmimusb-tag "$LIBMIMUSB" --out work
       - name: Verify the interface
         id: verify
         run: |
@@ -238,7 +238,7 @@ jobs:
           set -o pipefail
           cmake -S backend -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DMW_VERSION="$VERSION" \
-            -DMW_MIMHID=ON -DMW_MIMHID_DIR="$GITHUB_WORKSPACE/work/libmimhid" | tee configure.log
+            -DMW_MIMUSB=ON -DMW_MIMUSB_DIR="$GITHUB_WORKSPACE/work/libmimusb" | tee configure.log
           # Upstream's guards: a build without its Linux backend is a stub.
           grep -q 'Linux graphics backend ON' configure.log || { echo "::error::built without the Linux graphics backend"; exit 1; }
           grep -q 'Linux audio (PipeWire' configure.log || { echo "::error::built without PipeWire audio"; exit 1; }
@@ -251,15 +251,15 @@ jobs:
         env:
           APP: MoonlightWeb
           EXTRA_PLATFORM_PLUGINS: libqoffscreen.so
-          LDAI_OUTPUT: moonlight-web-mimhid-${{ needs.decide.outputs.version }}-x86_64.AppImage
+          LDAI_OUTPUT: moonlight-web-mimusb-${{ needs.decide.outputs.version }}-x86_64.AppImage
           LDAI_NO_APPSTREAM: 1
         run: |
           cmake --install build --prefix stage
           mkdir -p AppDir/usr/bin
           cp "build/$APP" build/moonlightweb-launch AppDir/usr/bin/
           cp -r stage/frontend AppDir/usr/bin/frontend
-          python3 "$GITHUB_WORKSPACE/tools/licenses.py" "$GITHUB_WORKSPACE/work" AppDir/usr/share/doc/moonlight-web-mimhid
-          cp "$GITHUB_WORKSPACE/mimhid.example.json" AppDir/usr/share/doc/moonlight-web-mimhid/
+          python3 "$GITHUB_WORKSPACE/tools/licenses.py" "$GITHUB_WORKSPACE/work" AppDir/usr/share/doc/moonlight-web-mimusb
+          cp "$GITHUB_WORKSPACE/mimusb.example.json" AppDir/usr/share/doc/moonlight-web-mimusb/
           cp frontend/assets/icon-512.png "AppDir/$APP.png"
           sed -e "s/^Name=.*/Name=$APP/" -e "s/^Exec=.*/Exec=$APP/" -e "s/^Icon=.*/Icon=$APP/" \
             backend/packaging/moonlightweb.desktop > "build/$APP.desktop"
@@ -308,7 +308,7 @@ jobs:
     env:
       TAG: ${{ needs.decide.outputs.tag }}
       VERSION: ${{ needs.decide.outputs.version }}
-      LIBMIMHID: ${{ needs.decide.outputs.libmimhid }}
+      LIBMIMUSB: ${{ needs.decide.outputs.libmimusb }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -317,7 +317,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: python tools/prepare.py --tag "$TAG" --libmimhid-tag "$LIBMIMHID" --out work
+      - run: python tools/prepare.py --tag "$TAG" --libmimusb-tag "$LIBMIMUSB" --out work
       - name: Verify the interface
         id: verify
         run: |
@@ -349,7 +349,7 @@ jobs:
         run: |
           cmake -S backend -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DMW_VERSION="$VERSION" \
-            -DMW_MIMHID=ON -DMW_MIMHID_DIR="$GITHUB_WORKSPACE/work/libmimhid"
+            -DMW_MIMUSB=ON -DMW_MIMUSB_DIR="$GITHUB_WORKSPACE/work/libmimusb"
           cmake --build build --target mw-server -j
 
       # An .app bundle, signed ad hoc (as upstream's own build is when it has no
@@ -433,8 +433,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TAG: ${{ needs.decide.outputs.tag }}
-      LIBMIMHID: ${{ needs.decide.outputs.libmimhid }}
-      PREVIOUS_LIBMIMHID: ${{ needs.decide.outputs.previous_libmimhid }}
+      LIBMIMUSB: ${{ needs.decide.outputs.libmimusb }}
+      PREVIOUS_LIBMIMUSB: ${{ needs.decide.outputs.previous_libmimusb }}
       IS_LATEST: ${{ needs.decide.outputs.latest }}
       INSTALLER: ${{ needs.decide.outputs.installer }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -447,43 +447,43 @@ jobs:
       - name: Release
         shell: bash
         run: |
-          # A retry that adds a missing platform rewrites the notes: keep the "libmimhid
+          # A retry that adds a missing platform rewrites the notes: keep the "libmimusb
           # changed" notice the first publish of this version wrote.
-          kept="$(gh release view "$TAG" --json body --jq .body 2>/dev/null | tr -d '\r' | grep -m1 '^> \*\*libmimhid changed' || true)"
-          if [ -z "$kept" ] && [ -n "$PREVIOUS_LIBMIMHID" ] && [ "$PREVIOUS_LIBMIMHID" != "$LIBMIMHID" ]; then
-            kept="> **libmimhid changed from $PREVIOUS_LIBMIMHID to $LIBMIMHID in this build.** Update the board's firmware to $LIBMIMHID, and compare your \`mimhid.json\` with the new \`mimhid.example.json\`."
+          kept="$(gh release view "$TAG" --json body --jq .body 2>/dev/null | tr -d '\r' | grep -m1 '^> \*\*libmimusb changed' || true)"
+          if [ -z "$kept" ] && [ -n "$PREVIOUS_LIBMIMUSB" ] && [ "$PREVIOUS_LIBMIMUSB" != "$LIBMIMUSB" ]; then
+            kept="> **libmimusb changed from $PREVIOUS_LIBMIMUSB to $LIBMIMUSB in this build.** Update the board's firmware to $LIBMIMUSB, and compare your \`mimusb.json\` with the new \`mimusb.example.json\`."
           fi
           {
             echo "Moonlight-Web $TAG with the physical-HID add-on (unofficial)."
             echo
-            echo "libmimhid: $LIBMIMHID"
+            echo "libmimusb: $LIBMIMUSB"
             echo "installer: $INSTALLER"
             echo
-            echo "**Firmware:** the board must run the firmware of the same libmimhid version as this build."
-            echo "Write the $LIBMIMHID firmware to it (Pico: \`mimhid_firmware-rp2040-*.uf2\`, Pico 2: \`mimhid_firmware-rp2350-*.uf2\`;"
-            echo "other chips are on the same page): https://github.com/nemarpuc/libmimhid/releases/tag/$LIBMIMHID"
+            echo "**Firmware:** the board must run the firmware of the same libmimusb version as this build."
+            echo "Write the $LIBMIMUSB firmware to it (Pico: \`mimusb_firmware-rp2040-*.uf2\`, Pico 2: \`mimusb_firmware-rp2350-*.uf2\`;"
+            echo "other chips are on the same page): https://github.com/nemarpuc/libmimusb/releases/tag/$LIBMIMUSB"
             if [ -n "$kept" ]; then
               echo
               printf '%s\n' "$kept"
             fi
             echo
             echo 'Every package holds a window installer, the build it installs (`bin/`), the example config and a README: unpack it and run `installer`.'
-            echo '- Windows (x64): `moonlight-web-mimhid-*-win-x64.zip` -> `installer.exe` (asks for administrator rights).'
+            echo '- Windows (x64): `moonlight-web-mimusb-*-win-x64.zip` -> `installer.exe` (asks for administrator rights).'
             if ls out/*linux-x86_64.tar.gz >/dev/null 2>&1; then
-              echo '- Linux (x86_64): `moonlight-web-mimhid-*-linux-x86_64.tar.gz` -> `./installer`.'
+              echo '- Linux (x86_64): `moonlight-web-mimusb-*-linux-x86_64.tar.gz` -> `./installer`.'
               echo '  Needs access to the board'"'"'s serial port (group `dialout` or `uucp`).'
             fi
             if ls out/*macos-arm64.zip >/dev/null 2>&1; then
-              echo '- macOS (Apple silicon): `moonlight-web-mimhid-*-macos-arm64.zip` -> `installer`.'
+              echo '- macOS (Apple silicon): `moonlight-web-mimusb-*-macos-arm64.zip` -> `installer`.'
               echo '  Ad-hoc signed: allow it in System Settings > Privacy & Security.'
             fi
             echo '- Undo: "Back to official" in the same window. Update: run the newer release'"'"'s installer the same way.'
-            echo '- Settings: `mimhid.json` beside `settings.json` (the installer writes it; `mimhid.example.json` is in the package).'
+            echo '- Settings: `mimusb.json` beside `settings.json` (the installer writes it; `mimusb.example.json` is in the package).'
             echo
             echo "Only the Windows build has been tried on hardware."
             echo
             echo "Source (GPL-3.0-or-later): upstream https://github.com/linckosz/moonlight-web/tree/$TAG,"
-            echo "this repository at $GITHUB_SHA (\`overlay/\`, \`patches/\`), libmimhid (MIT) https://github.com/nemarpuc/libmimhid."
+            echo "this repository at $GITHUB_SHA (\`overlay/\`, \`patches/\`), libmimusb (MIT) https://github.com/nemarpuc/libmimusb."
             echo "The licenses and these links are also inside every download (\`licenses/\`)."
           } > notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -511,5 +511,5 @@ jobs:
         shell: bash
         run: |
           c++ -std=c++17 -Ioverlay/backend/native-host/src/input tests/test_config.cpp \
-            overlay/backend/native-host/src/input/MimHidConfig.cpp -o test_config
+            overlay/backend/native-host/src/input/MimUsbConfig.cpp -o test_config
           ./test_config

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 the moonlight-web-mimhid contributors
+// Copyright (C) 2026 the moonlight-web-mimusb contributors
 #pragma once
 
 #include "config.hpp"
@@ -28,7 +28,7 @@ struct App {
     std::string last_error;
     std::atomic<bool> busy{false};
 
-    // mimhid.json
+    // mimusb.json
     fs::path config_path;
     std::string config_text; // what is on disk, or the example when there is no file
     bool config_exists = false;

@@ -38,12 +38,12 @@
         "max_power_ma": 100
       },
       "keyboard": {
-        "layout": "us", "boot": false, "poll_ms": 1, "name": "", "country": 33,
+        "layout": "us", "boot": false, "poll_ms": 1, "queue_depth": 7, "on_full": "drop_newest", "name": "", "country": 33,
         "bcd_hid": "0x0111", "endpoint_address": "0x81", "max_packet": 64,
         "usage_minimum": "0x04", "usage_maximum": "0xDD"
       },
       "mouse": {
-        "buttons": 5, "wheel": true, "pan": true, "boot": false, "poll_ms": 1, "name": "",
+        "buttons": 5, "wheel": true, "pan": true, "boot": false, "poll_ms": 1, "queue_depth": 7, "on_full": "drop_newest", "name": "",
         "bcd_hid": "0x0111", "endpoint_address": "0x82", "max_packet": 64,
         "axis_minimum": -32767, "axis_maximum": 32767, "axis_bits": 16,
         "wheel_minimum": -127, "wheel_maximum": 127, "wheel_bits": 8

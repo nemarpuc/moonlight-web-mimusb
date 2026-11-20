@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 the moonlight-web-mimhid contributors
+// Copyright (C) 2026 the moonlight-web-mimusb contributors
 //
 // The parts that differ by system: where the official build lives, how to stop
 // it, and what is added around the files.
@@ -12,7 +12,7 @@ namespace mwi {
 // The folder this program was started from.
 [[nodiscard]] fs::path program_dir();
 
-// Where MoonlightWeb keeps settings.json, and so mimhid.json.
+// Where MoonlightWeb keeps settings.json, and so mimusb.json.
 [[nodiscard]] fs::path config_dir();
 
 // The plan for this system; `dir` is where the official build is expected.

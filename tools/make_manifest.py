@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 the moonlight-web-mimhid contributors
+# Copyright (C) 2026 the moonlight-web-mimusb contributors
 """Write <bin>/manifest.txt for the installer: the release version, then the
 SHA-256 and relative path of every regular file below <bin>.
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 the moonlight-web-mimhid contributors
+// Copyright (C) 2026 the moonlight-web-mimusb contributors
 //
 // What the installer does, with no window and no platform call in it: read the
 // release's manifest, put the add-on build in place of the official one, and

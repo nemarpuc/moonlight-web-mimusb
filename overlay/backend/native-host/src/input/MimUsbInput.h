@@ -1,6 +1,6 @@
 /*
  * MoonlightWeb physical-HID add-on (unofficial).
- * Copyright (C) 2026 the moonlight-web-mimhid contributors
+ * Copyright (C) 2026 the moonlight-web-mimusb contributors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -19,7 +19,7 @@
 #pragma once
 
 #include "IInputSink.h"
-#include "MimHidConfig.h"
+#include "MimUsbConfig.h"
 
 #include <bitset>
 #include <memory>
@@ -27,10 +27,10 @@
 
 namespace mw::native::input {
 
-class MimHidBoard;
+class MimUsbBoard;
 
 /// Presents the viewer's keyboard and mouse to a target as a real USB device,
-/// through libmimhid boards on serial ports — "physical" input instead of
+/// through libmimusb boards on serial ports — "physical" input instead of
 /// SendInput / uinput / CGEvent. A board's USB side may be plugged into the very
 /// PC that runs this server.
 ///
@@ -43,11 +43,11 @@ class MimHidBoard;
 ///
 /// Guests are never routed to a board: the administrator-window gate lives in
 /// the OS sink, and a physical device would walk around it.
-class MimHidInput final : public IInputSink
+class MimUsbInput final : public IInputSink
 {
 public:
-    MimHidInput(std::unique_ptr<IInputSink> osSink, const MimHidConfig& config);
-    ~MimHidInput() override;
+    MimUsbInput(std::unique_ptr<IInputSink> osSink, const MimUsbConfig& config);
+    ~MimUsbInput() override;
 
     bool start(std::string& error) override;
     void stop() override;
@@ -73,9 +73,9 @@ private:
     void refreshRouting(); ///< picks up boards that came or went since the last event
 
     std::unique_ptr<IInputSink> m_Os;
-    MimHidConfig m_Config;
-    std::shared_ptr<MimHidBoard> m_Keyboard; ///< the board that carries the keyboard, if any
-    std::shared_ptr<MimHidBoard> m_Mouse;    ///< the board that carries the mouse, if any
+    MimUsbConfig m_Config;
+    std::shared_ptr<MimUsbBoard> m_Keyboard; ///< the board that carries the keyboard, if any
+    std::shared_ptr<MimUsbBoard> m_Mouse;    ///< the board that carries the mouse, if any
     bool m_Jis = false;
     uint32_t m_MouseButtonCount = 5;
     bool m_AllowElevated = false;
@@ -94,14 +94,14 @@ private:
     int m_LastAbsY = 0;
 };
 
-#ifdef MOONLIGHTWEB_MIMHID
+#ifdef MOONLIGHTWEB_MIMUSB
 /// What a platform session calls where it builds its input sink: the sink
-/// itself when mimhid.json asks for nothing, otherwise the sink inside a
-/// MimHidInput. @p allowElevated is SessionConfig::allowElevatedInput — only
+/// itself when mimusb.json asks for nothing, otherwise the sink inside a
+/// MimUsbInput. @p allowElevated is SessionConfig::allowElevatedInput — only
 /// the owner is routed to a board.
-std::unique_ptr<IInputSink> wrapWithMimHid(std::unique_ptr<IInputSink> osSink, bool allowElevated);
+std::unique_ptr<IInputSink> wrapWithMimUsb(std::unique_ptr<IInputSink> osSink, bool allowElevated);
 #else
-inline std::unique_ptr<IInputSink> wrapWithMimHid(std::unique_ptr<IInputSink> osSink, bool)
+inline std::unique_ptr<IInputSink> wrapWithMimUsb(std::unique_ptr<IInputSink> osSink, bool)
 {
     return osSink;
 }

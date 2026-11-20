@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 the moonlight-web-mimhid contributors
+// Copyright (C) 2026 the moonlight-web-mimusb contributors
 #include "app.hpp"
 
 #include "platform.hpp"
@@ -110,13 +110,13 @@ void start_rollback(App& app) {
 }
 
 void reload_config(App& app) {
-    app.config_path = config_dir() / "mimhid.json";
+    app.config_path = config_dir() / "mimusb.json";
     app.config_exists = read_text(app.config_path, app.config_text);
     std::string example;
     if (!app.config_exists) {
-        if (!read_text(app.release_dir / "mimhid.example.json", app.config_text)) {
+        if (!read_text(app.release_dir / "mimusb.example.json", app.config_text)) {
             app.config_text.clear();
-            app.config_error = "mimhid.example.json is not beside the installer";
+            app.config_error = "mimusb.example.json is not beside the installer";
             return;
         }
     }
@@ -144,7 +144,7 @@ void save_config(App& app) {
         fs::copy_file(app.config_path, app.config_path.string() + ".bak",
                       fs::copy_options::overwrite_existing, ec);
         if (ec) {
-            app.config_note = "not saved: cannot keep mimhid.json.bak: " + ec.message();
+            app.config_note = "not saved: cannot keep mimusb.json.bak: " + ec.message();
             return;
         }
     }

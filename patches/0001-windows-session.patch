@@ -4,15 +4,15 @@ index 3fbaf51..947f2cc 100644
 +++ b/backend/native-host/src/platform/windows/WindowsSession.cpp
 @@ -33,2 +33,3 @@
  #include "../../core/Log.h"
-+#include "../../input/MimHidInput.h"
++#include "../../input/MimUsbInput.h"
  #include "../../core/PresentLattice.h"
 @@ -562,3 +563,7 @@ public:
          std::string inputError;
 -        if (sink->start(inputError)) {
-+        // Physical HID (moonlight-web-mimhid): the keyboard and/or mouse may go
-+        // through a libmimhid board; the sink above keeps whatever does not.
++        // Physical HID (moonlight-web-mimusb): the keyboard and/or mouse may go
++        // through a libmimusb board; the sink above keeps whatever does not.
 +        std::unique_ptr<input::IInputSink> active =
-+            input::wrapWithMimHid(std::move(sink), m_Config.allowElevatedInput);
++            input::wrapWithMimUsb(std::move(sink), m_Config.allowElevatedInput);
 +        if (active->start(inputError)) {
              std::lock_guard<std::mutex> lock(m_InputMutex);
 @@ -566,4 +571,4 @@ public:

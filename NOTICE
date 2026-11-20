@@ -1,4 +1,4 @@
-moonlight-web-mimhid
+moonlight-web-mimusb
 
 This repository contains an unofficial add-on for Moonlight-Web. The add-on's
 own files (overlay/, patches/, installer/, tools/, tests/) are released under the GNU
@@ -12,9 +12,9 @@ Moonlight-Web
   official release tag; the copyright notice is kept in every file, and the
   three patches and the one appended CMake line only change a few lines of upstream files.
 
-libmimhid
-  Copyright (c) 2026 libmimhid contributors
-  MIT License -- https://github.com/nemarpuc/libmimhid
+libmimusb
+  Copyright (c) 2026 libmimusb contributors
+  MIT License -- https://github.com/nemarpuc/libmimusb
   Fetched at build time, at its newest release (named in the release notes and in
   licenses/SOURCE.txt of every download), and linked statically.
 
@@ -24,4 +24,4 @@ licenses/ of every download.
 
 A binary release is accompanied by the corresponding source: the upstream tag
 named in the release notes, this repository at the commit that built it, and
-libmimhid at the tag named in the release notes.
+libmimusb at the tag named in the release notes.

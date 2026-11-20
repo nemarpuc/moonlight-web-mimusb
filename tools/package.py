@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 the moonlight-web-mimhid contributors
+# Copyright (C) 2026 the moonlight-web-mimusb contributors
 """Lay out one release package and archive it.
 
     package.py --system win|linux|macos --version 0.4.1 --program PATH \
@@ -8,10 +8,10 @@
 
 The package is one folder, named after the release:
 
-    moonlight-web-mimhid-<version>-<system>/
+    moonlight-web-mimusb-<version>-<system>/
         installer[.exe]          the window (and command line) that installs bin/
         bin/                     what replaces the official build, with manifest.txt
-        mimhid.example.json
+        mimusb.example.json
         README.txt
         licenses/                this add-on's and the installer's
 
@@ -46,7 +46,7 @@ def main() -> int:
     args = parser.parse_args()
 
     suffix, installer_name, readme = SYSTEMS[args.system]
-    name = f"moonlight-web-mimhid-{args.version}-{suffix}"
+    name = f"moonlight-web-mimusb-{args.version}-{suffix}"
     stage = args.out / "stage" / name
     if stage.exists():
         shutil.rmtree(stage)
@@ -66,14 +66,14 @@ def main() -> int:
     installer = stage / installer_name
     shutil.copy2(args.installer, installer)
     installer.chmod(0o755)
-    shutil.copy2(ROOT / "mimhid.example.json", stage)
+    shutil.copy2(ROOT / "mimusb.example.json", stage)
     shutil.copy2(ROOT / "tools" / "package" / readme, stage / "README.txt")
 
     licenses = stage / "licenses"
     licenses.mkdir()
     for source, target in (
-        (ROOT / "LICENSE", "moonlight-web-mimhid-LICENSE.txt"),
-        (ROOT / "NOTICE", "moonlight-web-mimhid-NOTICE.txt"),
+        (ROOT / "LICENSE", "moonlight-web-mimusb-LICENSE.txt"),
+        (ROOT / "NOTICE", "moonlight-web-mimusb-NOTICE.txt"),
         (args.deps / "imgui-src" / "LICENSE.txt", "imgui-LICENSE.txt"),
         (args.deps / "glfw-src" / "LICENSE.md", "glfw-LICENSE.md"),
         (ROOT / "installer" / "licenses" / "Roboto-LICENSE.txt", "Roboto-LICENSE.txt"),

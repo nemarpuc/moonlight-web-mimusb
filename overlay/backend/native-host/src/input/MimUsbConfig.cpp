@@ -1,6 +1,6 @@
 /*
  * MoonlightWeb physical-HID add-on (unofficial).
- * Copyright (C) 2026 the moonlight-web-mimhid contributors
+ * Copyright (C) 2026 the moonlight-web-mimusb contributors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -16,7 +16,7 @@
  * this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "MimHidConfig.h"
+#include "MimUsbConfig.h"
 
 #include <cctype>
 #include <cstdlib>
@@ -274,6 +274,17 @@ public:
         out = m->str;
         return true;
     }
+    /// "on_full": what happens to a report when the endpoint's queue is full.
+    bool fullPolicy(const Value& v, FullPolicy& out)
+    {
+        std::string name;
+        if (!text(v, "on_full", name, true)) return false;
+        if (name == "drop_newest") out = FullPolicy::DropNewest;
+        else if (name == "drop_oldest") out = FullPolicy::DropOldest;
+        else if (name == "wait") out = FullPolicy::Wait;
+        else return fail(m_Base + "on_full must be \"drop_newest\", \"drop_oldest\" or \"wait\"");
+        return true;
+    }
     const Value* object(const Value& v, const char* key)
     {
         const Value* m = member(v, key);
@@ -299,7 +310,7 @@ private:
     }
 };
 
-bool readDevice(const Value& v, const std::string& base, MimHidDevice& d, std::string& error)
+bool readDevice(const Value& v, const std::string& base, MimUsbDevice& d, std::string& error)
 {
     Needs n(base, error);
     if (!n.text(v, "port", d.port, true)) return false;
@@ -366,6 +377,8 @@ bool readDevice(const Value& v, const std::string& base, MimHidDevice& d, std::s
             }
             if (!k.boolean(*kb, "boot", d.keyboardBoot) ||
                 !k.number(*kb, "poll_ms", 1, 255, d.keyboardPollMs) ||
+                !k.number(*kb, "queue_depth", 1, 255, d.keyboardQueueDepth) ||
+                !k.fullPolicy(*kb, d.keyboardOnFull) ||
                 !k.text(*kb, "name", d.keyboardName, false) ||
                 !k.number(*kb, "country", 0, 35, d.keyboardCountry) ||
                 !k.number(*kb, "bcd_hid", 1, 0xFFFF, d.keyboardBcdHid) ||
@@ -388,6 +401,8 @@ bool readDevice(const Value& v, const std::string& base, MimHidDevice& d, std::s
             if (!m.number(*ms, "buttons", 1, 5, d.mouseButtons) || !m.boolean(*ms, "wheel", d.mouseWheel) ||
                 !m.boolean(*ms, "pan", d.mousePan) || !m.boolean(*ms, "boot", d.mouseBoot) ||
                 !m.number(*ms, "poll_ms", 1, 255, d.mousePollMs) ||
+                !m.number(*ms, "queue_depth", 1, 255, d.mouseQueueDepth) ||
+                !m.fullPolicy(*ms, d.mouseOnFull) ||
                 !m.text(*ms, "name", d.mouseName, false) ||
                 !m.number(*ms, "bcd_hid", 1, 0xFFFF, d.mouseBcdHid) ||
                 !m.number(*ms, "endpoint_address", 0x81, 0x8F, d.mouseEndpointAddress) ||
@@ -406,7 +421,7 @@ bool readDevice(const Value& v, const std::string& base, MimHidDevice& d, std::s
 
 } // namespace
 
-bool parseMimHidConfig(const std::string& json, MimHidConfig& out, std::string& error)
+bool parseMimUsbConfig(const std::string& json, MimUsbConfig& out, std::string& error)
 {
     Value root;
     if (!Parser(json).parse(root, error)) return false;
@@ -415,7 +430,7 @@ bool parseMimHidConfig(const std::string& json, MimHidConfig& out, std::string& 
         return false;
     }
 
-    out = MimHidConfig{};
+    out = MimUsbConfig{};
     {
         Needs top("", error);
         if (!top.boolean(root, "enabled", out.enabled)) return false;
@@ -435,22 +450,22 @@ bool parseMimHidConfig(const std::string& json, MimHidConfig& out, std::string& 
                 error = "each entry of \"devices\" must be an object";
                 return false;
             }
-            MimHidDevice d;
+            MimUsbDevice d;
             if (!readDevice(entry, "devices[" + std::to_string(index++) + "].", d, error)) return false;
             out.devices.push_back(d);
         }
     } else {
         // One board, described at the top level.
-        MimHidDevice d;
+        MimUsbDevice d;
         if (!readDevice(root, "", d, error)) return false;
         out.devices.push_back(d);
     }
     return true;
 }
 
-std::string mimHidConfigPath()
+std::string mimUsbConfigPath()
 {
-    if (const char* env = std::getenv("MW_MIMHID_CONFIG"); env && *env) return env;
+    if (const char* env = std::getenv("MW_MIMUSB_CONFIG"); env && *env) return env;
 
     std::string base;
 #if defined(_WIN32)
@@ -463,16 +478,16 @@ std::string mimHidConfigPath()
     if (const char* home = std::getenv("HOME"); home && *home)
         base = std::string(home) + "/.local/share/MoonlightWeb/MoonlightWeb/";
 #endif
-    return base.empty() ? std::string() : base + "mimhid.json";
+    return base.empty() ? std::string() : base + "mimusb.json";
 }
 
-MimHidConfig loadMimHidConfig(std::string& error)
+MimUsbConfig loadMimUsbConfig(std::string& error)
 {
-    MimHidConfig config;
-    if (const char* off = std::getenv("MW_MIMHID_DISABLE"); off && *off && *off != '0')
+    MimUsbConfig config;
+    if (const char* off = std::getenv("MW_MIMUSB_DISABLE"); off && *off && *off != '0')
         return config;
 
-    const std::string path = mimHidConfigPath();
+    const std::string path = mimUsbConfigPath();
     if (path.empty()) return config;
 
     std::ifstream file(path, std::ios::binary);
@@ -480,9 +495,9 @@ MimHidConfig loadMimHidConfig(std::string& error)
 
     std::ostringstream text;
     text << file.rdbuf();
-    if (!parseMimHidConfig(text.str(), config, error)) {
+    if (!parseMimUsbConfig(text.str(), config, error)) {
         error = path + ": " + error;
-        config = MimHidConfig{};
+        config = MimUsbConfig{};
     }
     return config;
 }

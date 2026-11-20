@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 the moonlight-web-mimhid contributors
+// Copyright (C) 2026 the moonlight-web-mimusb contributors
 #include "platform.hpp"
 
 #include <cstdlib>
@@ -73,7 +73,7 @@ void run_quietly(const std::vector<std::string>& argv) {
 fs::path desktop_entry() {
     const std::string data = env("XDG_DATA_HOME");
     const fs::path base = data.empty() ? home() / ".local/share" : from_utf8(data);
-    return base / "applications/moonlight-web-mimhid.desktop";
+    return base / "applications/moonlight-web-mimusb.desktop";
 }
 #endif
 
@@ -99,7 +99,7 @@ fs::path program_dir() {
 }
 
 fs::path config_dir() {
-    const std::string override_path = env("MW_MIMHID_CONFIG");
+    const std::string override_path = env("MW_MIMUSB_CONFIG");
     if (!override_path.empty())
         return from_utf8(override_path).parent_path();
 #if defined(_WIN32)
@@ -116,17 +116,17 @@ Plan default_plan(const fs::path& release_dir) {
     plan.bin = release_dir / "bin";
 #if defined(_WIN32)
     plan.dir = from_utf8(env("ProgramFiles")) / "MoonlightWeb";
-    plan.state = plan.dir / "mimhid-install.txt";
+    plan.state = plan.dir / "mimusb-install.txt";
     plan.mode = Mode::Merge;
     plan.probe = "MoonlightWeb.exe";
 #elif defined(__APPLE__)
     plan.dir = "/Applications";
-    plan.state = home() / "Library/Application Support/moonlight-web-mimhid/install.txt";
+    plan.state = home() / "Library/Application Support/moonlight-web-mimusb/install.txt";
     plan.mode = Mode::Units;
     plan.probe = "MoonlightWeb.app";
 #else
     plan.dir = home() / ".local/bin";
-    plan.state = home() / ".local/share/moonlight-web-mimhid/install.txt";
+    plan.state = home() / ".local/share/moonlight-web-mimusb/install.txt";
     plan.mode = Mode::Units;
     plan.probe = "MoonlightWeb.AppImage";
 #endif
@@ -159,7 +159,7 @@ void after_install(const Plan& plan) {
                     ec);
     fs::create_directories(desktop_entry().parent_path(), ec);
     std::ofstream(desktop_entry())
-        << "[Desktop Entry]\nType=Application\nName=MoonlightWeb (mimhid)\nExec=\"" << utf8(image)
+        << "[Desktop Entry]\nType=Application\nName=MoonlightWeb (mimusb)\nExec=\"" << utf8(image)
         << "\"\nTerminal=false\nCategories=Network;\n";
 #endif
 }

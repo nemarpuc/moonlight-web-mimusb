@@ -1,6 +1,6 @@
 /*
  * MoonlightWeb physical-HID add-on (unofficial).
- * Copyright (C) 2026 the moonlight-web-mimhid contributors
+ * Copyright (C) 2026 the moonlight-web-mimusb contributors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * This program is free software: you can redistribute it and/or modify it

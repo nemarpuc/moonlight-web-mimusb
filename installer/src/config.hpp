@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 the moonlight-web-mimhid contributors
+// Copyright (C) 2026 the moonlight-web-mimusb contributors
 //
-// The few keys of mimhid.json the window edits. The file is edited as text, key
+// The few keys of mimusb.json the window edits. The file is edited as text, key
 // by key, so everything else in it (the long list of timeouts and ranges) stays
 // exactly as it was; nothing here fills in a key that is missing.
 #pragma once
@@ -20,7 +20,7 @@ struct Fields {
     std::string serial;
 };
 
-// Reads the keys out of a mimhid.json (or the example). Fails if one is missing
+// Reads the keys out of a mimusb.json (or the example). Fails if one is missing
 // or the file describes more than one board (edit that one by hand).
 [[nodiscard]] bool read_fields(const std::string& json, Fields& out, std::string& error);
 
