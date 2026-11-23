@@ -217,7 +217,7 @@ Windows library is cross-built there and not run in CI). Each package is one arc
 ## Installing
 
 `installer/` is one C++20 program (Dear ImGui + GLFW, linked statically) for all three systems.
-The window is fixed (dark cards, one accent colour, the palette of aoahid_player); it has no
+The window is fixed (dark cards, one accent colour, the palette of android-macro-player); it has no
 settings of its own. `src/core.cpp` holds what it does and has no system call in it;
 `src/platform.cpp` holds where things live and how MoonlightWeb is stopped.
 

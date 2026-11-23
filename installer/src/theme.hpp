@@ -2,7 +2,7 @@
 // Copyright (C) 2026 the moonlight-web-mimusb contributors
 //
 // The window's look: dark cards on near-black, one blue accent. Fixed; there is
-// nothing to configure. The palette is aoahid_player's dark theme.
+// nothing to configure. The palette is android-macro-player's dark theme.
 #pragma once
 
 #include <imgui.h>
